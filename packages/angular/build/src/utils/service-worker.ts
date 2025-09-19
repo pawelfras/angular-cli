@@ -7,13 +7,14 @@
  */
 
 import type { Config, Filesystem } from '@angular/service-worker/config';
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import { existsSync, constants as fsConstants, promises as fsPromises } from 'node:fs';
-import * as path from 'path';
+import * as path from 'node:path';
 import { BuildOutputFile, BuildOutputFileType } from '../tools/esbuild/bundler-context';
 import { BuildOutputAsset } from '../tools/esbuild/bundler-execution-result';
 import { assertIsError } from './error';
 import { loadEsmModule } from './load-esm';
+import { toPosixPath } from './path';
 
 class CliFilesystem implements Filesystem {
   constructor(
@@ -52,7 +53,7 @@ class CliFilesystem implements Filesystem {
 
       if (stats.isFile()) {
         // Uses posix paths since the service worker expects URLs
-        items.push('/' + path.relative(this.base, entryPath).replace(/\\/g, '/'));
+        items.push('/' + toPosixPath(path.relative(this.base, entryPath)));
       } else if (stats.isDirectory()) {
         subdirectories.push(entryPath);
       }
@@ -75,11 +76,11 @@ class ResultFilesystem implements Filesystem {
   ) {
     for (const file of outputFiles) {
       if (file.type === BuildOutputFileType.Media || file.type === BuildOutputFileType.Browser) {
-        this.fileReaders.set('/' + file.path.replace(/\\/g, '/'), async () => file.contents);
+        this.fileReaders.set('/' + toPosixPath(file.path), async () => file.contents);
       }
     }
     for (const file of assetFiles) {
-      this.fileReaders.set('/' + file.destination.replace(/\\/g, '/'), () =>
+      this.fileReaders.set('/' + toPosixPath(file.destination), () =>
         fsPromises.readFile(file.source),
       );
     }
@@ -126,7 +127,7 @@ export async function augmentAppWithServiceWorker(
   outputPath: string,
   baseHref: string,
   ngswConfigPath?: string,
-  inputputFileSystem = fsPromises,
+  inputFileSystem = fsPromises,
   outputFileSystem = fsPromises,
 ): Promise<void> {
   // Determine the configuration file path
@@ -137,7 +138,7 @@ export async function augmentAppWithServiceWorker(
   // Read the configuration file
   let config: Config | undefined;
   try {
-    const configurationData = await inputputFileSystem.readFile(configPath, 'utf-8');
+    const configurationData = await inputFileSystem.readFile(configPath, 'utf-8');
     config = JSON.parse(configurationData) as Config;
   } catch (error) {
     assertIsError(error);
@@ -161,11 +162,7 @@ export async function augmentAppWithServiceWorker(
   const copy = async (src: string, dest: string): Promise<void> => {
     const resolvedDest = path.join(outputPath, dest);
 
-    return inputputFileSystem === outputFileSystem
-      ? // Native FS (Builder).
-        inputputFileSystem.copyFile(src, resolvedDest, fsConstants.COPYFILE_FICLONE)
-      : // memfs (Webpack): Read the file from the input FS (disk) and write it to the output FS (memory).
-        outputFileSystem.writeFile(resolvedDest, await inputputFileSystem.readFile(src));
+    return outputFileSystem.writeFile(resolvedDest, await inputFileSystem.readFile(src));
   };
 
   await outputFileSystem.writeFile(path.join(outputPath, 'ngsw.json'), result.manifest);

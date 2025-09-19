@@ -36,9 +36,9 @@ describe('Browser Builder Web Worker support', () => {
       });
     `,
     'src/main.ts': `
-      import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';
+      import { platformBrowser } from '@angular/platform-browser';
       import { AppModule } from './app/app.module';
-      platformBrowserDynamic().bootstrapModule(AppModule).catch(err => console.error(err));
+      platformBrowser().bootstrapModule(AppModule).catch(err => console.error(err));
 
       const worker = new Worker(new URL('./app/app.worker', import.meta.url), { type: 'module' });
       worker.onmessage = ({ data }) => {
@@ -124,7 +124,7 @@ describe('Browser Builder Web Worker support', () => {
     );
     expect(workerContent).toContain('hello from worker');
     expect(workerContent).toContain('bar');
-    expect(workerContent).toContain('"hello"===e&&postMessage');
+    expect(workerContent).toContain('"hello"===o&&postMessage');
 
     // Main bundle should reference hashed worker bundle.
     const mainBundle = host.fileMatchExists(outputPath, /main\.[0-9a-f]{16}\.js/) as string;

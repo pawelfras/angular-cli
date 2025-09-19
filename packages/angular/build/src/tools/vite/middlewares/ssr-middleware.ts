@@ -44,6 +44,12 @@ export function createAngularSsrInternalMiddleware(
         ɵgetOrCreateAngularServerApp: typeof getOrCreateAngularServerApp;
       };
 
+      // `ɵgetOrCreateAngularServerApp` can be undefined right after an error.
+      // See: https://github.com/angular/angular-cli/issues/29907
+      if (!ɵgetOrCreateAngularServerApp) {
+        return next();
+      }
+
       const angularServerApp = ɵgetOrCreateAngularServerApp({
         allowStaticRouteRender: true,
       });

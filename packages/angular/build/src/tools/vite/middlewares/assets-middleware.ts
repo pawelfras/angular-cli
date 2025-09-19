@@ -7,9 +7,13 @@
  */
 
 import { lookup as lookupMimeType } from 'mrmime';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import type { ServerResponse } from 'node:http';
 import { extname } from 'node:path';
 import type { Connect, ViteDevServer } from 'vite';
-import { AngularMemoryOutputFiles, pathnameWithoutBasePath } from '../utils';
+import { ResultFile } from '../../../builders/application/results';
+import { AngularMemoryOutputFiles, AngularOutputAssets, pathnameWithoutBasePath } from '../utils';
 
 export interface ComponentStyleRecord {
   rawContent: Uint8Array;
@@ -17,9 +21,12 @@ export interface ComponentStyleRecord {
   reload?: boolean;
 }
 
+const CSS_PREPROCESSOR_REGEXP = /\.(?:s[ac]ss|less|css)$/;
+const JS_TS_REGEXP = /\.[cm]?[tj]sx?$/;
+
 export function createAngularAssetsMiddleware(
   server: ViteDevServer,
-  assets: Map<string, string>,
+  assets: AngularOutputAssets,
   outputFiles: AngularMemoryOutputFiles,
   componentStyles: Map<string, ComponentStyleRecord>,
   encapsulateStyle: (style: Uint8Array, componentId: string) => string,
@@ -36,17 +43,30 @@ export function createAngularAssetsMiddleware(
     const pathnameHasTrailingSlash = pathname[pathname.length - 1] === '/';
 
     // Rewrite all build assets to a vite raw fs URL
-    const assetSourcePath = assets.get(pathname);
-    if (assetSourcePath !== undefined) {
-      // Workaround to disable Vite transformer middleware.
-      // See: https://github.com/vitejs/vite/blob/746a1daab0395f98f0afbdee8f364cb6cf2f3b3f/packages/vite/src/node/server/middlewares/transform.ts#L201 and
-      // https://github.com/vitejs/vite/blob/746a1daab0395f98f0afbdee8f364cb6cf2f3b3f/packages/vite/src/node/server/transformRequest.ts#L204-L206
-      req.headers.accept = 'text/html';
+    const asset = assets.get(pathname);
+    if (asset) {
+      // This is a workaround to serve CSS, JS and TS files without Vite transformations.
+      if (JS_TS_REGEXP.test(extension) || CSS_PREPROCESSOR_REGEXP.test(extension)) {
+        const contents = readFileSync(asset.source);
+        const etag = `W/${createHash('sha256').update(contents).digest('hex')}`;
+        if (checkAndHandleEtag(req, res, etag)) {
+          return;
+        }
 
-      // The encoding needs to match what happens in the vite static middleware.
-      // ref: https://github.com/vitejs/vite/blob/d4f13bd81468961c8c926438e815ab6b1c82735e/packages/vite/src/node/server/middlewares/static.ts#L163
-      req.url = `${server.config.base}@fs/${encodeURI(assetSourcePath)}`;
-      next();
+        const mimeType = lookupMimeType(extension);
+        if (mimeType) {
+          res.setHeader('Content-Type', mimeType);
+        }
+
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'no-cache');
+        res.end(contents);
+      } else {
+        // The encoding needs to match what happens in the vite static middleware.
+        // ref: https://github.com/vitejs/vite/blob/d4f13bd81468961c8c926438e815ab6b1c82735e/packages/vite/src/node/server/middlewares/static.ts#L163
+        req.url = `${server.config.base}@fs/${encodeURI(asset.source)}`;
+        next();
+      }
 
       return;
     }
@@ -61,7 +81,7 @@ export function createAngularAssetsMiddleware(
         assets.get(pathname + '.html');
 
     if (htmlAssetSourcePath) {
-      req.url = `${server.config.base}@fs/${encodeURI(htmlAssetSourcePath)}`;
+      req.url = `${server.config.base}@fs/${encodeURI(htmlAssetSourcePath.source)}`;
       next();
 
       return;
@@ -100,12 +120,8 @@ export function createAngularAssetsMiddleware(
               componentStyle.used.add(componentId);
             }
 
-            // Report if there are no changes to avoid reprocessing
             const etag = `W/"${outputFile.contents.byteLength}-${outputFile.hash}-${componentId}"`;
-            if (req.headers['if-none-match'] === etag) {
-              res.statusCode = 304;
-              res.end();
-
+            if (checkAndHandleEtag(req, res, etag)) {
               return;
             }
 
@@ -134,12 +150,8 @@ export function createAngularAssetsMiddleware(
           }
         }
 
-        // Avoid resending the content if it has not changed since last request
         const etag = `W/"${outputFile.contents.byteLength}-${outputFile.hash}"`;
-        if (req.headers['if-none-match'] === etag) {
-          res.statusCode = 304;
-          res.end();
-
+        if (checkAndHandleEtag(req, res, etag)) {
           return;
         }
 
@@ -182,6 +194,63 @@ export function createAngularAssetsMiddleware(
 
           return;
         }
+      }
+    }
+
+    next();
+  };
+}
+
+function checkAndHandleEtag(
+  req: Connect.IncomingMessage,
+  res: ServerResponse,
+  etag: string,
+): boolean {
+  if (req.headers['if-none-match'] === etag) {
+    res.statusCode = 304;
+    res.end();
+
+    return true;
+  }
+
+  return false;
+}
+
+export function createBuildAssetsMiddleware(
+  basePath: string,
+  buildResultFiles: ReadonlyMap<string, ResultFile>,
+  readHandler: (path: string) => Buffer = readFileSync,
+): Connect.NextHandleFunction {
+  return function buildAssetsMiddleware(req, res, next) {
+    if (req.url === undefined || res.writableEnded) {
+      return;
+    }
+
+    // Parse the incoming request.
+    // The base of the URL is unused but required to parse the URL.
+    const pathname = pathnameWithoutBasePath(req.url, basePath);
+    const extension = extname(pathname);
+    if (extension && !/\.[mc]?[jt]s(?:\.map)?$/.test(extension)) {
+      const outputFile = buildResultFiles.get(pathname.slice(1));
+      if (outputFile) {
+        const contents =
+          outputFile.origin === 'memory' ? outputFile.contents : readHandler(outputFile.inputPath);
+
+        const etag = `W/${createHash('sha256').update(contents).digest('hex')}`;
+        if (checkAndHandleEtag(req, res, etag)) {
+          return;
+        }
+
+        const mimeType = lookupMimeType(extension);
+        if (mimeType) {
+          res.setHeader('Content-Type', mimeType);
+        }
+
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'no-cache');
+        res.end(contents);
+
+        return;
       }
     }
 

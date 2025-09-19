@@ -7,7 +7,7 @@
  */
 
 import { SchematicTestRunner, UnitTestTree } from '@angular-devkit/schematics/testing';
-import * as path from 'path';
+import * as path from 'node:path';
 import { Schema as PwaOptions } from './schema';
 
 describe('PWA Schematic', () => {
@@ -112,7 +112,6 @@ describe('PWA Schematic', () => {
     const content = tree.readContent('projects/bar/src/index.html');
 
     expect(content).toMatch(/<link rel="manifest" href="manifest.webmanifest">/);
-    expect(content).toMatch(/<meta name="theme-color" content="#1976d2">/);
     expect(content).toMatch(
       /<noscript>Please enable JavaScript to continue using this application.<\/noscript>/,
     );
@@ -127,7 +126,6 @@ describe('PWA Schematic', () => {
     const content = tree.readContent('projects/bar/src/index.html');
 
     expect(content).toMatch(/<link rel="manifest" href="manifest.webmanifest">/);
-    expect(content).toMatch(/<meta name="theme-color" content="#1976d2">/);
     expect(content).not.toMatch(
       /<noscript>Please enable JavaScript to continue using this application.<\/noscript>/,
     );
@@ -167,6 +165,46 @@ describe('PWA Schematic', () => {
       const swFlag = config.projects.bar.architect.build.options.serviceWorker;
 
       expect(swFlag).toBeTrue();
+    });
+  });
+
+  describe('@angular-devkit/build-angular:application builder', () => {
+    beforeEach(() => {
+      const config = JSON.parse(appTree.readContent('/angular.json'));
+      const build = config.projects.bar.architect.build;
+
+      build.builder = '@angular-devkit/build-angular:application';
+
+      appTree.overwrite('/angular.json', JSON.stringify(config, undefined, 2));
+    });
+
+    it('should run the service worker schematic', async () => {
+      const tree = await schematicRunner.runSchematic('ng-add', defaultOptions, appTree);
+      const configText = tree.readContent('/angular.json');
+      const config = JSON.parse(configText);
+      const swFlag = config.projects.bar.architect.build.configurations.production.serviceWorker;
+
+      expect(swFlag).toBe('projects/bar/ngsw-config.json');
+    });
+  });
+
+  describe('@angular/build:application builder', () => {
+    beforeEach(() => {
+      const config = JSON.parse(appTree.readContent('/angular.json'));
+      const build = config.projects.bar.architect.build;
+
+      build.builder = '@angular/build:application';
+
+      appTree.overwrite('/angular.json', JSON.stringify(config, undefined, 2));
+    });
+
+    it('should run the service worker schematic', async () => {
+      const tree = await schematicRunner.runSchematic('ng-add', defaultOptions, appTree);
+      const configText = tree.readContent('/angular.json');
+      const config = JSON.parse(configText);
+      const swFlag = config.projects.bar.architect.build.configurations.production.serviceWorker;
+
+      expect(swFlag).toBe('projects/bar/ngsw-config.json');
     });
   });
 });

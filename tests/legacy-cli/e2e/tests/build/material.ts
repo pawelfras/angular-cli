@@ -55,9 +55,9 @@ export default async function () {
   // Issue: https://github.com/angular/angular-cli/issues/17320
   await replaceInFile(
     'src/app/app.config.ts',
-    `import { ApplicationConfig } from '@angular/core';`,
+    `from '@angular/core';`,
     `
-    import { ApplicationConfig } from '@angular/core';
+    from '@angular/core';
     import {
       MomentDateAdapter,
       MAT_MOMENT_DATE_FORMATS
@@ -72,10 +72,8 @@ export default async function () {
 
   await replaceInFile(
     'src/app/app.config.ts',
-    `providers: [provideRouter(routes) ]`,
-    `
-    providers: [
-      provideRouter(routes),
+    `provideRouter(routes)`,
+    `provideRouter(routes),
       {
         provide: DateAdapter,
         useClass: MomentDateAdapter,
@@ -84,28 +82,8 @@ export default async function () {
       {
         provide: MAT_DATE_FORMATS,
         useValue: MAT_MOMENT_DATE_FORMATS
-      }
-    ]
-  `,
+      }`,
   );
 
   await ng('e2e', '--configuration=production');
-
-  const usingApplicationBuilder = getGlobalVariable('argv')['esbuild'];
-  if (usingApplicationBuilder) {
-    // Test with chunk optimizations to reduce async animations chunk file count
-    await execWithEnv('ng', ['build'], {
-      ...process.env,
-      NG_BUILD_OPTIMIZE_CHUNKS: '1',
-    });
-    const distFiles = await readdir('dist/test-project/browser');
-    const jsCount = distFiles.filter((file) => file.endsWith('.js')).length;
-    // 3 = polyfills, main, and one lazy chunk
-    assert.equal(jsCount, 3);
-
-    await execWithEnv('ng', ['e2e', '--configuration=production'], {
-      ...process.env,
-      NG_BUILD_OPTIMIZE_CHUNKS: '1',
-    });
-  }
 }

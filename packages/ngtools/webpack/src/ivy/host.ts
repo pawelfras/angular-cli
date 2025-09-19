@@ -8,8 +8,8 @@
 
 /* eslint-disable @typescript-eslint/unbound-method */
 import type { CompilerHost } from '@angular/compiler-cli';
-import { createHash } from 'crypto';
-import * as path from 'path';
+import { createHash } from 'node:crypto';
+import * as path from 'node:path';
 import * as ts from 'typescript';
 import { WebpackResourceLoader } from '../resource_loader';
 import { normalizePath } from './paths';
@@ -21,7 +21,7 @@ export function augmentHostWithResources(
     directTemplateLoading?: boolean;
     inlineStyleFileExtension?: string;
   } = {},
-) {
+): void {
   const resourceHost = host as CompilerHost;
 
   resourceHost.readResource = function (fileName: string) {
@@ -38,7 +38,7 @@ export function augmentHostWithResources(
 
       resourceLoader.setAffectedResources(filePath, [filePath]);
 
-      return content;
+      return Promise.resolve(content);
     } else {
       return resourceLoader.get(filePath);
     }

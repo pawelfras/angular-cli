@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import { workerData } from 'worker_threads';
+import { workerData } from 'node:worker_threads';
 import { OutputMode } from '../../builders/application/schema';
 import { ESMInMemoryFileLoaderWorkerData } from './esm-in-memory-loader/loader-hooks';
 import { patchFetchToLoadInMemoryAssets } from './fetch-patch';
@@ -26,19 +26,21 @@ const { outputMode, hasSsrEntry } = workerData as {
   hasSsrEntry: boolean;
 };
 
-let serverURL = DEFAULT_URL;
-
 /** Renders an application based on a provided options. */
 async function extractRoutes(): Promise<RoutersExtractorWorkerResult> {
+  const serverURL = outputMode !== undefined && hasSsrEntry ? await launchServer() : DEFAULT_URL;
+
+  patchFetchToLoadInMemoryAssets(serverURL);
+
   const { ɵextractRoutesAndCreateRouteTree: extractRoutesAndCreateRouteTree } =
     await loadEsmModuleFromMemory('./main.server.mjs');
 
-  const { routeTree, appShellRoute, errors } = await extractRoutesAndCreateRouteTree(
-    serverURL,
-    undefined /** manifest */,
-    true /** invokeGetPrerenderParams */,
-    outputMode === OutputMode.Server /** includePrerenderFallbackRoutes */,
-  );
+  const { routeTree, appShellRoute, errors } = await extractRoutesAndCreateRouteTree({
+    url: serverURL,
+    invokeGetPrerenderParams: outputMode !== undefined,
+    includePrerenderFallbackRoutes: outputMode === OutputMode.Server,
+    signal: AbortSignal.timeout(30_000),
+  });
 
   return {
     errors,
@@ -47,14 +49,4 @@ async function extractRoutes(): Promise<RoutersExtractorWorkerResult> {
   };
 }
 
-async function initialize() {
-  if (outputMode !== undefined && hasSsrEntry) {
-    serverURL = await launchServer();
-  }
-
-  patchFetchToLoadInMemoryAssets(serverURL);
-
-  return extractRoutes;
-}
-
-export default initialize();
+export default extractRoutes;

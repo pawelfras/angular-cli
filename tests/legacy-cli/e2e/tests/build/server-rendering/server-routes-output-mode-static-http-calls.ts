@@ -13,7 +13,7 @@ export default async function () {
 
   // Forcibly remove in case another test doesn't clean itself up.
   await uninstallPackage('@angular/ssr');
-  await ng('add', '@angular/ssr', '--server-routing', '--skip-confirmation', '--skip-install');
+  await ng('add', '@angular/ssr', '--skip-confirmation', '--skip-install');
   await useSha();
   await installWorkspacePackages();
 
@@ -21,7 +21,7 @@ export default async function () {
     // Add asset
     'public/media.json': JSON.stringify({ dataFromAssets: true }),
     // Update component to do an HTTP call to asset and API.
-    'src/app/app.component.ts': `
+    'src/app/app.ts': `
     import { Component, inject } from '@angular/core';
     import { JsonPipe } from '@angular/common';
     import { RouterOutlet } from '@angular/router';
@@ -37,7 +37,7 @@ export default async function () {
         <router-outlet></router-outlet>
       \`,
     })
-    export class AppComponent {
+    export class App {
       assetsData: any;
       apiData: any;
 
@@ -56,10 +56,10 @@ export default async function () {
     `,
     // Add http client and route
     'src/app/app.config.ts': `
-      import { ApplicationConfig } from '@angular/core';
+      import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
       import { provideRouter } from '@angular/router';
 
-      import { HomeComponent } from './home/home.component';
+      import { Home } from './home/home';
       import { provideClientHydration } from '@angular/platform-browser';
       import { provideHttpClient, withFetch } from '@angular/common/http';
 
@@ -67,33 +67,34 @@ export default async function () {
         providers: [
           provideRouter([{
             path: 'home',
-            component: HomeComponent,
+            component: Home,
           }]),
           provideClientHydration(),
           provideHttpClient(withFetch()),
+          provideZoneChangeDetection({ eventCoalescing: true }),
         ],
       };
     `,
     'src/server.ts': `
       import { AngularNodeAppEngine, writeResponseToNodeResponse, isMainModule, createNodeRequestHandler } from '@angular/ssr/node';
       import express from 'express';
-      import { fileURLToPath } from 'node:url';
-      import { dirname, resolve } from 'node:path';
+      import { join } from 'node:path';
 
       export function app(): express.Express {
         const server = express();
-        const serverDistFolder = dirname(fileURLToPath(import.meta.url));
-        const browserDistFolder = resolve(serverDistFolder, '../browser');
+        const browserDistFolder = join(import.meta.dirname, '../browser');
         const angularNodeAppEngine = new AngularNodeAppEngine();
 
-        server.get('/api', (req, res) => res.json({ dataFromAPI: true }));
+        server.get('/api', (req, res) => {
+          res.json({ dataFromAPI: true })
+        });
 
-        server.get('**', express.static(browserDistFolder, {
+        server.use(express.static(browserDistFolder, {
           maxAge: '1y',
           index: 'index.html'
         }));
 
-        server.get('**', (req, res, next) => {
+        server.use((req, res, next) => {
           angularNodeAppEngine.handle(req)
             .then((response) => response ? writeResponseToNodeResponse(response, res) : next())
             .catch(next);
@@ -105,7 +106,10 @@ export default async function () {
 
       if (isMainModule(import.meta.url)) {
         const port = process.env['PORT'] || 4000;
-        server.listen(port, () => {
+        server.listen(port, (error) => {
+          if (error) {
+            throw error;
+          }
           console.log(\`Node Express server listening on http://localhost:\${port}\`);
         });
       }

@@ -9,7 +9,7 @@
 import type { BuilderContext } from '@angular-devkit/architect';
 import type { Plugin } from 'esbuild';
 import { realpathSync } from 'node:fs';
-import { access, constants } from 'node:fs/promises';
+import { access, constants, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { normalizeAssetPatterns, normalizeOptimization, normalizeSourceMaps } from '../../utils';
@@ -24,6 +24,7 @@ import {
   generateSearchDirectories,
   loadPostcssConfiguration,
 } from '../../utils/postcss-configuration';
+import { getProjectRootPaths, normalizeDirectoryPath } from '../../utils/project-metadata';
 import { urlJoin } from '../../utils/url';
 import {
   Schema as ApplicationBuilderOptions,
@@ -108,6 +109,12 @@ interface InternalOptions {
   templateUpdates?: boolean;
 
   /**
+   * Enables emitting incremental build results when in watch mode. A full build result will only be emitted
+   * for the initial build. This option also requires watch to be enabled to have an effect.
+   */
+  incrementalResults?: boolean;
+
+  /**
    * Enables instrumentation to collect code coverage data for specific files.
    *
    * Used exclusively for tests and shouldn't be used for other kinds of builds.
@@ -154,12 +161,7 @@ export async function normalizeOptions(
       // ref: https://github.com/nodejs/node/issues/7726
       realpathSync(context.workspaceRoot);
   const projectMetadata = await context.getProjectMetadata(projectName);
-  const projectRoot = normalizeDirectoryPath(
-    path.join(workspaceRoot, (projectMetadata.root as string | undefined) ?? ''),
-  );
-  const projectSourceRoot = normalizeDirectoryPath(
-    path.join(workspaceRoot, (projectMetadata.sourceRoot as string | undefined) ?? 'src'),
-  );
+  const { projectRoot, projectSourceRoot } = getProjectRootPaths(workspaceRoot, projectMetadata);
 
   // Gather persistent caching option and provide a project specific cache location
   const cacheOptions = normalizeCacheOptions(projectMetadata, workspaceRoot);
@@ -168,14 +170,19 @@ export async function normalizeOptions(
   const i18nOptions: I18nOptions & {
     duplicateTranslationBehavior?: I18NTranslation;
     missingTranslationBehavior?: I18NTranslation;
-  } = createI18nOptions(projectMetadata, options.localize);
+  } = createI18nOptions(projectMetadata, options.localize, context.logger, !!options.ssr);
   i18nOptions.duplicateTranslationBehavior = options.i18nDuplicateTranslation;
   i18nOptions.missingTranslationBehavior = options.i18nMissingTranslation;
   if (options.forceI18nFlatOutput) {
     i18nOptions.flatOutput = true;
   }
 
-  const entryPoints = normalizeEntryPoints(workspaceRoot, options.browser, options.entryPoints);
+  const entryPoints = normalizeEntryPoints(
+    workspaceRoot,
+    projectSourceRoot,
+    options.browser,
+    options.entryPoints,
+  );
   const tsconfig = path.join(workspaceRoot, options.tsConfig);
   const optimizationOptions = normalizeOptimization(options.optimization);
   const sourcemapOptions = normalizeSourceMaps(options.sourceMap ?? false);
@@ -199,13 +206,22 @@ export async function normalizeOptions(
     }
   }
 
-  let loaderExtensions: Record<string, 'text' | 'binary' | 'file'> | undefined;
+  let loaderExtensions:
+    | Record<string, 'text' | 'binary' | 'file' | 'dataurl' | 'base64'>
+    | undefined;
   if (options.loader) {
     for (const [extension, value] of Object.entries(options.loader)) {
       if (extension[0] !== '.' || /\.[cm]?[jt]sx?$/.test(extension)) {
         continue;
       }
-      if (value !== 'text' && value !== 'binary' && value !== 'file' && value !== 'empty') {
+      if (
+        value !== 'text' &&
+        value !== 'binary' &&
+        value !== 'file' &&
+        value !== 'dataurl' &&
+        value !== 'base64' &&
+        value !== 'empty'
+      ) {
         continue;
       }
       loaderExtensions ??= {};
@@ -253,10 +269,12 @@ export async function normalizeOptions(
     : await getTailwindConfig(searchDirectories, workspaceRoot, context);
 
   let serverEntryPoint: string | undefined;
-  if (options.server) {
+  if (typeof options.server === 'string') {
+    if (options.server === '') {
+      throw new Error('The "server" option cannot be an empty string.');
+    }
+
     serverEntryPoint = path.join(workspaceRoot, options.server);
-  } else if (options.server === '') {
-    throw new Error('The "server" option cannot be an empty string.');
   }
 
   let prerenderOptions;
@@ -289,7 +307,7 @@ export async function normalizeOptions(
     };
   }
 
-  const outputPath = options.outputPath;
+  const outputPath = options.outputPath ?? path.join(workspaceRoot, 'dist', projectName);
   const outputOptions: NormalizedOutputOptions = {
     browser: 'browser',
     server: 'server',
@@ -324,32 +342,36 @@ export async function normalizeOptions(
   let indexHtmlOptions;
   // index can never have a value of `true` but in the schema it's of type `boolean`.
   if (typeof options.index !== 'boolean') {
+    let indexInput: string;
     let indexOutput: string;
     // The output file will be created within the configured output path
     if (typeof options.index === 'string') {
-      /**
-       * If SSR is activated, create a distinct entry file for the `index.html`.
-       * This is necessary because numerous server/cloud providers automatically serve the `index.html` as a static file
-       * if it exists (handling SSG).
-       *
-       * For instance, accessing `foo.com/` would lead to `foo.com/index.html` being served instead of hitting the server.
-       *
-       * This approach can also be applied to service workers, where the `index.csr.html` is served instead of the prerendered `index.html`.
-       */
-      const indexBaseName = path.basename(options.index);
-      indexOutput =
-        (ssrOptions || prerenderOptions) && indexBaseName === 'index.html'
-          ? INDEX_HTML_CSR
-          : indexBaseName;
+      indexInput = indexOutput = path.join(workspaceRoot, options.index);
+    } else if (typeof options.index === 'undefined') {
+      indexInput = path.join(projectSourceRoot, 'index.html');
+      indexOutput = 'index.html';
     } else {
+      indexInput = path.join(workspaceRoot, options.index.input);
       indexOutput = options.index.output || 'index.html';
     }
 
+    /**
+     * If SSR is activated, create a distinct entry file for the `index.html`.
+     * This is necessary because numerous server/cloud providers automatically serve the `index.html` as a static file
+     * if it exists (handling SSG).
+     *
+     * For instance, accessing `foo.com/` would lead to `foo.com/index.html` being served instead of hitting the server.
+     *
+     * This approach can also be applied to service workers, where the `index.csr.html` is served instead of the prerendered `index.html`.
+     */
+    const indexBaseName = path.basename(indexOutput);
+    indexOutput =
+      (ssrOptions || prerenderOptions) && indexBaseName === 'index.html'
+        ? INDEX_HTML_CSR
+        : indexBaseName;
+
     indexHtmlOptions = {
-      input: path.join(
-        workspaceRoot,
-        typeof options.index === 'string' ? options.index : options.index.input,
-      ),
+      input: indexInput,
       output: indexOutput,
       insertionOrder: [
         ['polyfills', true],
@@ -378,10 +400,19 @@ export async function normalizeOptions(
     }
   }
 
+  const autoCsp = options.security?.autoCsp;
+  const security = {
+    autoCsp: autoCsp
+      ? {
+          unsafeEval: autoCsp === true ? false : !!autoCsp.unsafeEval,
+        }
+      : undefined,
+  };
+
   // Initial options to keep
   const {
     allowedCommonJsDependencies,
-    aot,
+    aot = true,
     baseHref,
     crossOrigin,
     externalDependencies,
@@ -407,7 +438,6 @@ export async function normalizeOptions(
     partialSSRBuild = false,
     externalRuntimeStyles,
     instrumentForCoverage,
-    security,
   } = options;
 
   // Return all the normalized options
@@ -417,7 +447,14 @@ export async function normalizeOptions(
     baseHref,
     cacheOptions,
     crossOrigin,
-    externalDependencies,
+    externalDependencies: normalizeExternals(externalDependencies),
+    externalPackages:
+      typeof externalPackages === 'object'
+        ? {
+            ...externalPackages,
+            exclude: normalizeExternals(externalPackages.exclude),
+          }
+        : externalPackages,
     extractLicenses,
     inlineStyleLanguage,
     jit: !aot,
@@ -425,7 +462,6 @@ export async function normalizeOptions(
     polyfills: polyfills === undefined || Array.isArray(polyfills) ? polyfills : [polyfills],
     poll,
     progress,
-    externalPackages,
     preserveSymlinks,
     stylePreprocessorOptions,
     subresourceIntegrity,
@@ -469,10 +505,13 @@ export async function normalizeOptions(
     clearScreen,
     define,
     partialSSRBuild: usePartialSsrBuild || partialSSRBuild,
-    externalRuntimeStyles,
+    externalRuntimeStyles: aot && externalRuntimeStyles,
     instrumentForCoverage,
     security,
     templateUpdates: !!options.templateUpdates,
+    incrementalResults: !!options.incrementalResults,
+    customConditions: options.conditions,
+    frameworkVersion: await findFrameworkVersion(projectRoot),
   };
 }
 
@@ -520,26 +559,25 @@ async function getTailwindConfig(
  */
 function normalizeEntryPoints(
   workspaceRoot: string,
+  projectSourceRoot: string,
   browser: string | undefined,
-  entryPoints: Set<string> | Map<string, string> = new Set(),
+  entryPoints: Set<string> | Map<string, string> | undefined,
 ): Record<string, string> {
   if (browser === '') {
     throw new Error('`browser` option cannot be an empty string.');
   }
 
   // `browser` and `entryPoints` are mutually exclusive.
-  if (browser && entryPoints.size > 0) {
+  if (browser && entryPoints) {
     throw new Error('Only one of `browser` or `entryPoints` may be provided.');
   }
-  if (!browser && entryPoints.size === 0) {
-    // Schema should normally reject this case, but programmatic usages of the builder might make this mistake.
-    throw new Error('Either `browser` or at least one `entryPoints` value must be provided.');
-  }
 
-  // Schema types force `browser` to always be provided, but it may be omitted when the builder is invoked programmatically.
   if (browser) {
     // Use `browser` alone.
     return { 'main': path.join(workspaceRoot, browser) };
+  } else if (!entryPoints) {
+    // Default browser entry if no explicit entry points
+    return { 'main': path.join(projectSourceRoot, 'main.ts') };
   } else if (entryPoints instanceof Map) {
     return Object.fromEntries(
       Array.from(entryPoints.entries(), ([name, entryPoint]) => {
@@ -582,21 +620,6 @@ function normalizeEntryPoints(
 
     return entryPointPaths;
   }
-}
-
-/**
- * Normalize a directory path string.
- * Currently only removes a trailing slash if present.
- * @param path A path string.
- * @returns A normalized path string.
- */
-function normalizeDirectoryPath(path: string): string {
-  const last = path[path.length - 1];
-  if (last === '/' || last === '\\') {
-    return path.slice(0, -1);
-  }
-
-  return path;
 }
 
 function normalizeGlobalEntries(
@@ -643,7 +666,7 @@ function normalizeGlobalEntries(
 }
 
 export function getLocaleBaseHref(
-  baseHref: string | undefined,
+  baseHref: string | undefined = '',
   i18n: NormalizedApplicationBuildOptions['i18nOptions'],
   locale: string,
 ): string | undefined {
@@ -651,9 +674,58 @@ export function getLocaleBaseHref(
     return undefined;
   }
 
-  if (i18n.locales[locale] && i18n.locales[locale].baseHref !== '') {
-    return urlJoin(baseHref || '', i18n.locales[locale].baseHref ?? `/${locale}/`);
+  const localeData = i18n.locales[locale];
+  if (!localeData) {
+    return undefined;
   }
 
-  return undefined;
+  const baseHrefSuffix = localeData.baseHref ?? localeData.subPath + '/';
+
+  return baseHrefSuffix !== '' ? urlJoin(baseHref, baseHrefSuffix) : undefined;
+}
+
+/**
+ * Normalizes an array of external dependency paths by ensuring that
+ * wildcard patterns (`/*`) are removed from package names.
+ *
+ * This avoids the need to handle this normalization repeatedly in our plugins,
+ * as esbuild already treats `--external:@foo/bar` as implicitly including
+ * `--external:@foo/bar/*`. By standardizing the input, we ensure consistency
+ * and reduce redundant checks across our plugins.
+ *
+ * @param value - An optional array of dependency paths to normalize.
+ * @returns A new array with wildcard patterns removed from package names, or `undefined` if input is `undefined`.
+ */
+function normalizeExternals(value: string[] | undefined): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return [
+    ...new Set(
+      value.map((d) =>
+        // remove "/*" wildcard in the end if provided string is not path-like
+        d.endsWith('/*') && !/^\.{0,2}\//.test(d) ? d.slice(0, -2) : d,
+      ),
+    ),
+  ];
+}
+
+async function findFrameworkVersion(projectRoot: string): Promise<string> {
+  // Create a custom require function for ESM compliance.
+  // NOTE: The trailing slash is significant.
+  const projectResolve = createRequire(projectRoot + '/').resolve;
+
+  try {
+    const manifestPath = projectResolve('@angular/core/package.json');
+    const manifestData = await readFile(manifestPath, 'utf-8');
+    const manifestObject = JSON.parse(manifestData) as { version: string };
+    const version = manifestObject.version;
+
+    return version;
+  } catch {
+    throw new Error(
+      'Error: It appears that "@angular/core" is missing as a dependency. Please ensure it is included in your project.',
+    );
+  }
 }

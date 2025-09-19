@@ -55,6 +55,10 @@ function findProjectTarget(
     throw new Error('Project target does not exist.');
   }
 
+  if (!targetDefinition.builder) {
+    throw new Error(`A builder is not set for target '${target}' in project '${project}'.`);
+  }
+
   return targetDefinition;
 }
 
@@ -74,9 +78,9 @@ export class WorkspaceNodeModulesArchitectHost implements ArchitectHost<NodeModu
     } else {
       this.workspaceHost = {
         async getBuilderName(project, target) {
-          const targetDefinition = findProjectTarget(workspaceOrHost, project, target);
+          const { builder } = findProjectTarget(workspaceOrHost, project, target);
 
-          return targetDefinition.builder;
+          return builder;
         },
         async getOptions(project, target, configuration) {
           const targetDefinition = findProjectTarget(workspaceOrHost, project, target);
@@ -86,7 +90,9 @@ export class WorkspaceNodeModulesArchitectHost implements ArchitectHost<NodeModu
           }
 
           if (!targetDefinition.configurations?.[configuration]) {
-            throw new Error(`Configuration '${configuration}' is not set in the workspace.`);
+            throw new Error(
+              `Configuration '${configuration}' for target '${target}' in project '${project}' is not set in the workspace.`,
+            );
           }
 
           return (targetDefinition.configurations?.[configuration] ?? {}) as json.JsonObject;
@@ -115,7 +121,7 @@ export class WorkspaceNodeModulesArchitectHost implements ArchitectHost<NodeModu
     }
   }
 
-  async getBuilderNameForTarget(target: Target) {
+  async getBuilderNameForTarget(target: Target): Promise<string> {
     return this.workspaceHost.getBuilderName(target.project, target.target);
   }
 
@@ -128,7 +134,7 @@ export class WorkspaceNodeModulesArchitectHost implements ArchitectHost<NodeModu
    */
   resolveBuilder(
     builderStr: string,
-    basePath = this._root,
+    basePath: string = this._root,
     seenBuilders?: Set<string>,
   ): Promise<NodeModulesBuilderInfo> {
     if (seenBuilders?.has(builderStr)) {
@@ -193,17 +199,25 @@ export class WorkspaceNodeModulesArchitectHost implements ArchitectHost<NodeModu
     }
 
     // Determine builder option schema path (relative within package only)
-    const schemaPath = builder.schema && path.normalize(builder.schema);
+    let schemaPath = builder.schema;
     if (!schemaPath) {
       throw new Error('Could not find the schema for builder ' + builderStr);
     }
-    if (path.isAbsolute(schemaPath) || schemaPath.startsWith('..')) {
+    if (path.isAbsolute(schemaPath) || path.normalize(schemaPath).startsWith('..')) {
       throw new Error(
-        `Package "${packageName}" has an invalid builder implementation path: "${builderName}" --> "${builder.schema}"`,
+        `Package "${packageName}" has an invalid builder schema path: "${builderName}" --> "${builder.schema}"`,
       );
     }
 
-    const schemaText = readFileSync(path.join(buildersManifestDirectory, schemaPath), 'utf-8');
+    // The file could be either a package reference or in the local manifest directory.
+    if (schemaPath.startsWith('.')) {
+      schemaPath = path.join(buildersManifestDirectory, schemaPath);
+    } else {
+      const manifestRequire = createRequire(buildersManifestDirectory + '/');
+      schemaPath = manifestRequire.resolve(schemaPath);
+    }
+
+    const schemaText = readFileSync(schemaPath, 'utf-8');
 
     return Promise.resolve({
       name: builderStr,
@@ -214,11 +228,11 @@ export class WorkspaceNodeModulesArchitectHost implements ArchitectHost<NodeModu
     });
   }
 
-  async getCurrentDirectory() {
+  async getCurrentDirectory(): Promise<string> {
     return process.cwd();
   }
 
-  async getWorkspaceRoot() {
+  async getWorkspaceRoot(): Promise<string> {
     return this._root;
   }
 
@@ -296,28 +310,37 @@ export function loadEsmModule<T>(modulePath: string | URL): Promise<T> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getBuilder(builderPath: string): Promise<any> {
+  let builder;
   switch (path.extname(builderPath)) {
     case '.mjs':
       // Load the ESM configuration file using the TypeScript dynamic import workaround.
       // Once TypeScript provides support for keeping the dynamic import this workaround can be
       // changed to a direct dynamic import.
-      return (await loadEsmModule<{ default: unknown }>(pathToFileURL(builderPath))).default;
+      builder = (await loadEsmModule<{ default: unknown }>(pathToFileURL(builderPath))).default;
+      break;
     case '.cjs':
-      return localRequire(builderPath);
+      builder = localRequire(builderPath);
+      break;
     default:
       // The file could be either CommonJS or ESM.
       // CommonJS is tried first then ESM if loading fails.
       try {
-        return localRequire(builderPath);
+        builder = localRequire(builderPath);
       } catch (e) {
-        if ((e as NodeJS.ErrnoException).code === 'ERR_REQUIRE_ESM') {
+        if (
+          (e as NodeJS.ErrnoException).code === 'ERR_REQUIRE_ESM' ||
+          (e as NodeJS.ErrnoException).code === 'ERR_REQUIRE_ASYNC_MODULE'
+        ) {
           // Load the ESM configuration file using the TypeScript dynamic import workaround.
           // Once TypeScript provides support for keeping the dynamic import this workaround can be
           // changed to a direct dynamic import.
-          return (await loadEsmModule<{ default: unknown }>(pathToFileURL(builderPath))).default;
+          builder = await loadEsmModule<{ default: unknown }>(pathToFileURL(builderPath));
         }
 
         throw e;
       }
+      break;
   }
+
+  return 'default' in builder ? builder.default : builder;
 }

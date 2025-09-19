@@ -8,15 +8,15 @@
 
 import { BuilderHandlerFn } from '@angular-devkit/architect';
 import { json } from '@angular-devkit/core';
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
 import { JasmineBuilderHarness } from '../../../testing';
 import { host } from '../../../testing/test-utils';
 import { setupApplicationTarget, setupBrowserTarget } from './setup';
 
 const optionSchemaCache = new Map<string, json.schema.JsonSchema>();
 
-export function describeServeBuilder<T>(
-  builderHandler: BuilderHandlerFn<T & json.JsonObject>,
+export function describeServeBuilder<T extends json.JsonObject>(
+  builderHandler: BuilderHandlerFn<T>,
   options: { name?: string; schemaPath: string },
   specDefinitions: ((
     harness: JasmineBuilderHarness<T>,

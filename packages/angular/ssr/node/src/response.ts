@@ -7,7 +7,7 @@
  */
 
 import type { ServerResponse } from 'node:http';
-import type { Http2ServerRequest, Http2ServerResponse } from 'node:http2';
+import type { Http2ServerResponse } from 'node:http2';
 
 /**
  * Streams a web-standard `Response` into a Node.js `ServerResponse`
@@ -19,11 +19,10 @@ import type { Http2ServerRequest, Http2ServerResponse } from 'node:http2';
  * @param source - The web-standard `Response` object to stream from.
  * @param destination - The Node.js response object (`ServerResponse` or `Http2ServerResponse`) to stream into.
  * @returns A promise that resolves once the streaming operation is complete.
- * @developerPreview
  */
 export async function writeResponseToNodeResponse(
   source: Response,
-  destination: ServerResponse | Http2ServerResponse<Http2ServerRequest>,
+  destination: ServerResponse | Http2ServerResponse,
 ): Promise<void> {
   const { status, headers, body } = source;
   destination.statusCode = status;
@@ -42,6 +41,10 @@ export async function writeResponseToNodeResponse(
     } else {
       destination.setHeader(name, value);
     }
+  }
+
+  if ('flushHeaders' in destination) {
+    destination.flushHeaders();
   }
 
   if (!body) {
@@ -71,7 +74,12 @@ export async function writeResponseToNodeResponse(
         break;
       }
 
-      (destination as ServerResponse).write(value);
+      const canContinue = (destination as ServerResponse).write(value);
+      if (canContinue === false) {
+        // Explicitly check for `false`, as AWS may return `undefined` even though this is not valid.
+        // See: https://github.com/CodeGenieApp/serverless-express/issues/683
+        await new Promise<void>((resolve) => destination.once('drain', resolve));
+      }
     }
   } catch {
     destination.end('Internal server error.');

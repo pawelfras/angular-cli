@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import { join } from 'path';
+import { join } from 'node:path';
 import { Argv } from 'yargs';
 import {
   CommandModule,
@@ -40,7 +40,7 @@ export default class CacheCommandModule
     ].sort();
 
     for (const module of subcommands) {
-      localYargs = addCommandModuleToYargs(localYargs, module, this.context);
+      addCommandModuleToYargs(module, this.context);
     }
 
     return localYargs.demandCommand(1, demandCommandFailureMessage).strict();

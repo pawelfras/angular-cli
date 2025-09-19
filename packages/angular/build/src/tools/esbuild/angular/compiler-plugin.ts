@@ -21,12 +21,7 @@ import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import { maxWorkers, useTypeChecking } from '../../../utils/environment-options';
 import { AngularHostOptions } from '../../angular/angular-host';
-import {
-  AngularCompilation,
-  DiagnosticModes,
-  NoopCompilation,
-  createAngularCompilation,
-} from '../../angular/compilation';
+import { AngularCompilation, DiagnosticModes, NoopCompilation } from '../../angular/compilation';
 import { JavaScriptTransformer } from '../javascript-transformer';
 import { LoadResultCache, createCachedLoad } from '../load-result-cache';
 import { logCumulativeDurations, profileAsync, resetCumulativeDurations } from '../profiling';
@@ -34,6 +29,7 @@ import { SharedTSCompilationState, getSharedCompilationState } from './compilati
 import { ComponentStylesheetBundler } from './component-stylesheets';
 import { FileReferenceTracker } from './file-reference-tracker';
 import { setupJitPluginCallbacks } from './jit-plugin-callbacks';
+import { rewriteForBazel } from './rewrite-bazel-paths';
 import { SourceFileCache } from './source-file-cache';
 
 export interface CompilerPluginOptions {
@@ -41,8 +37,14 @@ export interface CompilerPluginOptions {
   tsconfig: string;
   jit?: boolean;
 
-  /** Skip TypeScript compilation setup. This is useful to re-use the TypeScript compilation from another plugin. */
-  noopTypeScriptCompilation?: boolean;
+  /**
+   * Include class metadata and JIT information in built code.
+   * The Angular TestBed APIs require additional metadata for the Angular aspects of the application
+   * such as Components, Modules, Pipes, etc.
+   * TestBed may also leverage JIT capabilities during testing (e.g., overrideComponent).
+   */
+  includeTestMetadata?: boolean;
+
   advancedOptimizations?: boolean;
   thirdPartySourcemaps?: boolean;
   fileReplacements?: Record<string, string>;
@@ -57,6 +59,7 @@ export interface CompilerPluginOptions {
 // eslint-disable-next-line max-lines-per-function
 export function createCompilerPlugin(
   pluginOptions: CompilerPluginOptions,
+  compilationOrFactory: AngularCompilation | (() => Promise<AngularCompilation>),
   stylesheetBundler: ComponentStylesheetBundler,
 ): Plugin {
   return {
@@ -94,7 +97,7 @@ export function createCompilerPlugin(
           sourcemap: !!pluginOptions.sourcemap,
           thirdPartySourcemaps: pluginOptions.thirdPartySourcemaps,
           advancedOptimizations: pluginOptions.advancedOptimizations,
-          jit: pluginOptions.jit,
+          jit: pluginOptions.jit || pluginOptions.includeTestMetadata,
         },
         maxWorkers,
         cacheStore?.createCache('jstransformer'),
@@ -103,6 +106,13 @@ export function createCompilerPlugin(
       // Setup defines based on the values used by the Angular compiler-cli
       build.initialOptions.define ??= {};
       build.initialOptions.define['ngI18nClosureMode'] ??= 'false';
+
+      // The factory is only relevant for compatibility purposes with the private API.
+      // TODO: Update private API in the next major to allow compilation function factory removal here.
+      const compilation =
+        typeof compilationOrFactory === 'function'
+          ? await compilationOrFactory()
+          : compilationOrFactory;
 
       // The in-memory cache of TypeScript file outputs will be used during the build in `onLoad` callbacks for TS files.
       // A string value indicates direct TS/NG output and a Uint8Array indicates fully transformed code.
@@ -116,10 +126,6 @@ export function createCompilerPlugin(
         { outputFiles?: OutputFile[]; metafile?: Metafile; errors?: PartialMessage[] }
       >();
 
-      // Create new reusable compilation for the appropriate mode based on the `jit` plugin option
-      const compilation: AngularCompilation = pluginOptions.noopTypeScriptCompilation
-        ? new NoopCompilation()
-        : await createAngularCompilation(!!pluginOptions.jit);
       // Compilation is initially assumed to have errors until emitted
       let hasCompilationErrors = true;
 
@@ -152,8 +158,8 @@ export function createCompilerPlugin(
         // dependencies or web worker processing.
         let modifiedFiles;
         if (
-          pluginOptions.sourceFileCache?.modifiedFiles.size &&
-          !pluginOptions.noopTypeScriptCompilation
+          !(compilation instanceof NoopCompilation) &&
+          pluginOptions.sourceFileCache?.modifiedFiles.size
         ) {
           // TODO: Differentiate between changed input files and stale output files
           modifiedFiles = referencedFileTracker.update(pluginOptions.sourceFileCache.modifiedFiles);
@@ -167,11 +173,7 @@ export function createCompilerPlugin(
           modifiedFiles.forEach((file) => additionalResults.delete(file));
         }
 
-        if (
-          !pluginOptions.noopTypeScriptCompilation &&
-          compilation.update &&
-          pluginOptions.sourceFileCache?.modifiedFiles.size
-        ) {
+        if (compilation.update && pluginOptions.sourceFileCache?.modifiedFiles.size) {
           await compilation.update(modifiedFiles ?? pluginOptions.sourceFileCache.modifiedFiles);
         }
 
@@ -198,7 +200,7 @@ export function createCompilerPlugin(
                 // invalid the output and force a full page reload for HMR cases. The containing file and order
                 // of the style within the containing file is used.
                 pluginOptions.externalRuntimeStyles
-                  ? createHash('sha-256')
+                  ? createHash('sha256')
                       .update(containingFile)
                       .update((order ?? 0).toString())
                       .update(className ?? '')
@@ -410,8 +412,8 @@ export function createCompilerPlugin(
       });
 
       build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async (args) => {
-        const request = path.normalize(
-          pluginOptions.fileReplacements?.[path.normalize(args.path)] ?? args.path,
+        const request = rewriteForBazel(
+          path.normalize(pluginOptions.fileReplacements?.[path.normalize(args.path)] ?? args.path),
         );
         const isJS = /\.[cm]?js$/.test(request);
 
@@ -477,13 +479,14 @@ export function createCompilerPlugin(
         return {
           contents,
           loader,
+          resolveDir: path.dirname(request),
         };
       });
 
       build.onLoad(
         { filter: /\.[cm]?js$/ },
         createCachedLoad(pluginOptions.loadResultCache, async (args) => {
-          let request = args.path;
+          let request = rewriteForBazel(args.path);
           if (pluginOptions.fileReplacements) {
             const replacement = pluginOptions.fileReplacements[path.normalize(args.path)];
             if (replacement) {
@@ -504,6 +507,7 @@ export function createCompilerPlugin(
               return {
                 contents,
                 loader: 'js',
+                resolveDir: path.dirname(request),
                 watchFiles: request !== args.path ? [request] : undefined,
               };
             },
@@ -511,6 +515,31 @@ export function createCompilerPlugin(
           );
         }),
       );
+
+      // Add a load handler if there are file replacement option entries for JSON files
+      if (
+        pluginOptions.fileReplacements &&
+        Object.keys(pluginOptions.fileReplacements).some((value) => value.endsWith('.json'))
+      ) {
+        build.onLoad(
+          { filter: /\.json$/ },
+          createCachedLoad(pluginOptions.loadResultCache, async (args) => {
+            const replacement = pluginOptions.fileReplacements?.[path.normalize(args.path)];
+            if (replacement) {
+              return {
+                contents: await import('node:fs/promises').then(({ readFile }) =>
+                  readFile(path.normalize(replacement)),
+                ),
+                loader: 'json' as const,
+                watchFiles: [replacement],
+              };
+            }
+
+            // If no replacement defined, let esbuild handle it directly
+            return null;
+          }),
+        );
+      }
 
       // Setup bundling of component templates and stylesheets when in JIT mode
       if (pluginOptions.jit) {
@@ -663,15 +692,33 @@ function createCompilerOptionsTransformer(
       });
     }
 
+    if (compilerOptions.isolatedModules && compilerOptions.emitDecoratorMetadata) {
+      setupWarnings?.push({
+        text: `TypeScript compiler option 'isolatedModules' may prevent the 'emitDecoratorMetadata' option from emitting all metadata.`,
+        location: null,
+        notes: [
+          {
+            text:
+              `The 'emitDecoratorMetadata' option is not required by Angular` +
+              'and can be removed if not explictly required by the project.',
+          },
+        ],
+      });
+    }
+
     // Synchronize custom resolve conditions.
     // Set if using the supported bundler resolution mode (bundler is the default in new projects)
-    if (compilerOptions.moduleResolution === 100 /* ModuleResolutionKind.Bundler */) {
+    if (
+      compilerOptions.moduleResolution === 100 /* ModuleResolutionKind.Bundler */ ||
+      compilerOptions.module === 200 /** ModuleKind.Preserve */
+    ) {
       compilerOptions.customConditions = customConditions;
     }
 
     return {
       ...compilerOptions,
       noEmitOnError: false,
+      composite: false,
       inlineSources: !!pluginOptions.sourcemap,
       inlineSourceMap: !!pluginOptions.sourcemap,
       sourceMap: undefined,
@@ -680,6 +727,8 @@ function createCompilerOptionsTransformer(
       preserveSymlinks,
       externalRuntimeStyles: pluginOptions.externalRuntimeStyles,
       _enableHmr: !!pluginOptions.templateUpdates,
+      supportTestBed: !!pluginOptions.includeTestMetadata,
+      supportJitMode: !!pluginOptions.includeTestMetadata,
     };
   };
 }

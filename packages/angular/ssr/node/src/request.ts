@@ -27,19 +27,20 @@ const HTTP2_PSEUDO_HEADERS = new Set([':method', ':scheme', ':authority', ':path
  *
  * @param nodeRequest - The Node.js request object (`IncomingMessage` or `Http2ServerRequest`) to convert.
  * @returns A Web Standard `Request` object.
- * @developerPreview
  */
 export function createWebRequestFromNodeRequest(
   nodeRequest: IncomingMessage | Http2ServerRequest,
 ): Request {
   const { headers, method = 'GET' } = nodeRequest;
   const withBody = method !== 'GET' && method !== 'HEAD';
+  const referrer = headers.referer && URL.canParse(headers.referer) ? headers.referer : undefined;
 
   return new Request(createRequestUrl(nodeRequest), {
     method,
     headers: createRequestHeaders(headers),
     body: withBody ? nodeRequest : undefined,
     duplex: withBody ? 'half' : undefined,
+    referrer,
   });
 }
 
@@ -83,18 +84,40 @@ function createRequestUrl(nodeRequest: IncomingMessage | Http2ServerRequest): UR
     originalUrl,
   } = nodeRequest as IncomingMessage & { originalUrl?: string };
   const protocol =
-    headers['x-forwarded-proto'] ?? ('encrypted' in socket && socket.encrypted ? 'https' : 'http');
-  const hostname = headers['x-forwarded-host'] ?? headers.host ?? headers[':authority'];
-  const port = headers['x-forwarded-port'] ?? socket.localPort;
+    getFirstHeaderValue(headers['x-forwarded-proto']) ??
+    ('encrypted' in socket && socket.encrypted ? 'https' : 'http');
+  const hostname =
+    getFirstHeaderValue(headers['x-forwarded-host']) ?? headers.host ?? headers[':authority'];
 
   if (Array.isArray(hostname)) {
     throw new Error('host value cannot be an array.');
   }
 
   let hostnameWithPort = hostname;
-  if (port && !hostname?.includes(':')) {
-    hostnameWithPort += `:${port}`;
+  if (!hostname?.includes(':')) {
+    const port = getFirstHeaderValue(headers['x-forwarded-port']);
+    if (port) {
+      hostnameWithPort += `:${port}`;
+    }
   }
 
   return new URL(originalUrl ?? url, `${protocol}://${hostnameWithPort}`);
+}
+
+/**
+ * Extracts the first value from a multi-value header string.
+ *
+ * @param value - A string or an array of strings representing the header values.
+ *                           If it's a string, values are expected to be comma-separated.
+ * @returns The first trimmed value from the multi-value header, or `undefined` if the input is invalid or empty.
+ *
+ * @example
+ * ```typescript
+ * getFirstHeaderValue("value1, value2, value3"); // "value1"
+ * getFirstHeaderValue(["value1", "value2"]); // "value1"
+ * getFirstHeaderValue(undefined); // undefined
+ * ```
+ */
+function getFirstHeaderValue(value: string | string[] | undefined): string | undefined {
+  return value?.toString().split(',', 1)[0]?.trim();
 }

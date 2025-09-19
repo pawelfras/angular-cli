@@ -6,6 +6,7 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
+import { AngularCompilation } from '../../tools/angular/compilation';
 import { ComponentStylesheetBundler } from '../../tools/esbuild/angular/component-stylesheets';
 import { SourceFileCache } from '../../tools/esbuild/angular/source-file-cache';
 import {
@@ -34,6 +35,7 @@ export function setupBundlerContexts(
   target: string[],
   codeBundleCache: SourceFileCache,
   stylesheetBundler: ComponentStylesheetBundler,
+  angularCompilation: AngularCompilation,
   templateUpdates: Map<string, string> | undefined,
 ): {
   typescriptContexts: BundlerContext[];
@@ -61,6 +63,7 @@ export function setupBundlerContexts(
         target,
         codeBundleCache,
         stylesheetBundler,
+        angularCompilation,
         templateUpdates,
       ),
     ),
@@ -174,6 +177,7 @@ export function createComponentStyleBundler(
         // the same as being disabled. Disabling has the advantage of avoiding the overhead
         // of sourcemap processing.
         sourcemapOptions.styles && !sourcemapOptions.hidden ? 'linked' : false,
+      sourcesContent: sourcemapOptions.sourcesContent,
       outputNames,
       includePaths: stylePreprocessorOptions?.includePaths,
       // string[] | undefined' is not assignable to type '(Version | DeprecationOrId)[] | undefined'.

@@ -19,9 +19,9 @@ import {
   url,
 } from '@angular-devkit/schematics';
 import { readWorkspace, writeWorkspace } from '@schematics/angular/utility';
-import { posix } from 'path';
-import { Readable } from 'stream';
-import { pipeline } from 'stream/promises';
+import { posix } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { Schema as PwaOptions } from './schema';
 
 function updateIndexFile(path: string): Rule {
@@ -45,7 +45,6 @@ function updateIndexFile(path: string): Rule {
     rewriter.on('endTag', (endTag) => {
       if (endTag.tagName === 'head') {
         rewriter.emitRaw('  <link rel="manifest" href="manifest.webmanifest">\n');
-        rewriter.emitRaw('  <meta name="theme-color" content="#1976d2">\n');
       } else if (endTag.tagName === 'body' && needsNoScript) {
         rewriter.emitRaw(
           '  <noscript>Please enable JavaScript to continue using this application.</noscript>\n',
@@ -96,19 +95,26 @@ export default function (options: PwaOptions): Rule {
     for (const target of project.targets.values()) {
       if (
         target.builder === '@angular-devkit/build-angular:browser' ||
-        target.builder === '@angular-devkit/build-angular:application'
+        target.builder === '@angular-devkit/build-angular:application' ||
+        target.builder === '@angular/build:application'
       ) {
         buildTargets.push(target);
-      } else if (target.builder === '@angular-devkit/build-angular:karma') {
+      } else if (
+        target.builder === '@angular-devkit/build-angular:karma' ||
+        target.builder === '@angular/build:karma'
+      ) {
         testTargets.push(target);
       }
     }
 
     // Find all index.html files in build targets
     const indexFiles = new Set<string>();
+    let checkForDefaultIndex = false;
     for (const target of buildTargets) {
       if (typeof target.options?.index === 'string') {
         indexFiles.add(target.options.index);
+      } else if (target.options?.index === undefined) {
+        checkForDefaultIndex = true;
       }
 
       if (!target.configurations) {
@@ -118,12 +124,22 @@ export default function (options: PwaOptions): Rule {
       for (const options of Object.values(target.configurations)) {
         if (typeof options?.index === 'string') {
           indexFiles.add(options.index);
+        } else if (options?.index === undefined) {
+          checkForDefaultIndex = true;
         }
       }
     }
 
     // Setup sources for the assets files to add to the project
     const sourcePath = project.sourceRoot ?? posix.join(project.root, 'src');
+
+    // Check for a default index file if a configuration path allows for a default usage
+    if (checkForDefaultIndex) {
+      const defaultIndexFile = posix.join(sourcePath, 'index.html');
+      if (host.exists(defaultIndexFile)) {
+        indexFiles.add(defaultIndexFile);
+      }
+    }
 
     // Setup service worker schematic options
     const { title, ...swOptions } = options;

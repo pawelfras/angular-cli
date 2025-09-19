@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-
-import { isAbsolute } from 'path';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { getGlobalVariable } from '../../utils/env';
 import { ng } from '../../utils/process';
 import { updateJsonFile } from '../../utils/project';
@@ -18,6 +18,8 @@ export default async function () {
         ...build.options,
         main: build.options.browser,
         browser: undefined,
+        outputPath: 'dist/secondary-project',
+        index: 'src/index.html',
       };
 
       build.configurations.development = {
@@ -39,22 +41,17 @@ export default async function () {
   const { sources } = JSON.parse(content) as { sources: string[] };
   let mainFileFound = false;
   for (const source of sources) {
-    if (isAbsolute(source)) {
-      throw new Error(`Expected ${source} to be relative.`);
-    }
+    assert(!isAbsolute(source), `Expected ${source} to be relative.`);
 
     if (source.endsWith('main.ts')) {
       mainFileFound = true;
-      if (
-        source !== 'projects/secondary-project/src/main.ts' &&
-        source !== './projects/secondary-project/src/main.ts'
-      ) {
-        throw new Error(`Expected main file ${source} to be relative to the workspace root.`);
-      }
+      assert(
+        source === 'projects/secondary-project/src/main.ts' ||
+          source === './projects/secondary-project/src/main.ts',
+        `Expected main file ${source} to be relative to the workspace root.`,
+      );
     }
   }
 
-  if (!mainFileFound) {
-    throw new Error('Could not find the main file in the application sourcemap sources array.');
-  }
+  assert(mainFileFound, 'Could not find the main file in the application sourcemap sources array.');
 }

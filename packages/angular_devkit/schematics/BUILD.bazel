@@ -1,6 +1,6 @@
-load("@npm//@angular/build-tooling/bazel/api-golden:index.bzl", "api_golden_test_npm_package")
-load("@npm//@bazel/jasmine:index.bzl", "jasmine_node_test")
-load("//tools:defaults.bzl", "pkg_npm", "ts_library")
+load("@devinfra//bazel/api-golden:index.bzl", "api_golden_test_npm_package")
+load("@npm//:defs.bzl", "npm_link_all_packages")
+load("//tools:defaults.bzl", "jasmine_test", "npm_package", "ts_project")
 
 # Copyright Google Inc. All Rights Reserved.
 #
@@ -10,54 +10,46 @@ package(default_visibility = ["//visibility:public"])
 
 licenses(["notice"])
 
+npm_link_all_packages()
+
 # @angular-devkit/schematics
 
-ts_library(
+ts_project(
     name = "schematics",
-    package_name = "@angular-devkit/schematics",
     srcs = glob(
         include = ["src/**/*.ts"],
         exclude = [
             "src/**/*_spec.ts",
         ],
-    ),
+    ) + ["index.ts"],
     data = [
         "package.json",
     ],
-    module_name = "@angular-devkit/schematics",
-    module_root = "src/index.d.ts",
     deps = [
-        "//packages/angular_devkit/core",
-        "//packages/angular_devkit/core/node",  # TODO: get rid of this for 6.0
-        "@npm//@types/node",
-        "@npm//jsonc-parser",
-        "@npm//magic-string",
-        "@npm//rxjs",
+        ":node_modules/@angular-devkit/core",
+        ":node_modules/jsonc-parser",
+        ":node_modules/magic-string",
+        ":node_modules/rxjs",
+        "//:node_modules/@types/node",
     ],
 )
 
-# @external_begin
-
-ts_library(
+ts_project(
     name = "schematics_test_lib",
     testonly = True,
     srcs = glob(["src/**/*_spec.ts"]),
     deps = [
+        ":node_modules/@angular-devkit/core",
+        ":node_modules/rxjs",
         ":schematics",
-        "//packages/angular_devkit/core",
-        "//packages/angular_devkit/core/node",
+        "//:node_modules/@types/jasmine",
         "//packages/angular_devkit/schematics/testing",
-        "@npm//rxjs",
     ],
 )
 
-jasmine_node_test(
-    name = "schematics_test",
-    srcs = [":schematics_test_lib"],
-    deps = [
-        "@npm//jasmine",
-        "@npm//source-map",
-    ],
+jasmine_test(
+    name = "test",
+    data = [":schematics_test_lib"],
 )
 
 genrule(
@@ -67,8 +59,8 @@ genrule(
     cmd = "cp $(execpath //:LICENSE) $@",
 )
 
-pkg_npm(
-    name = "npm_package",
+npm_package(
+    name = "pkg",
     pkg_deps = [
         "//packages/angular_devkit/core:package.json",
     ],
@@ -92,8 +84,9 @@ api_golden_test_npm_package(
         ":npm_package",
         "//goldens:public-api",
     ],
-    golden_dir = "angular_cli/goldens/public-api/angular_devkit/schematics",
-    npm_package = "angular_cli/packages/angular_devkit/schematics/npm_package",
-    types = ["@npm//@types/node"],
+    golden_dir = "goldens/public-api/angular_devkit/schematics",
+    npm_package = "packages/angular_devkit/schematics/npm_package",
+    types = {
+        "//:node_modules/@types/node": "node",
+    },
 )
-# @external_end

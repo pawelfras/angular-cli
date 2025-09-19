@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
 import { getGlobalVariable } from '../../utils/env';
 import { appendToFile, replaceInFile, writeMultipleFiles } from '../../utils/fs';
@@ -7,15 +8,10 @@ import { ngServe } from '../../utils/project';
 export default async function () {
   const esbuild = getGlobalVariable('argv')['esbuild'];
   const validBundleRegEx = esbuild ? /sent to client/ : /Compiled successfully\./;
-  const lazyBundleRegEx = esbuild ? /chunk-/ : /src_app_lazy_lazy_component_ts\.js/;
+  const lazyBundleRegEx = esbuild ? /chunk-/ : /src_app_lazy_lazy_ts\.js/;
 
-  // Disable component stylesheet HMR to support page reload based rebuild testing.
-  // Ideally this environment variable would be passed directly to the new serve process
-  // but this would require signficant test changes due to the existing `ngServe` signature.
-  const oldHMRValue = process.env['NG_HMR_CSTYLES'];
-  process.env['NG_HMR_CSTYLES'] = '0';
-  const port = await ngServe();
-  process.env['NG_HMR_CSTYLES'] = oldHMRValue;
+  // Disable HMR to support page reload based rebuild testing.
+  const port = await ngServe('--no-hmr');
 
   // Add a lazy route.
   await silentNg('generate', 'component', 'lazy');
@@ -30,7 +26,7 @@ export default async function () {
     replaceInFile(
       'src/app/app.routes.ts',
       'routes: Routes = [];',
-      `routes: Routes = [{path: 'lazy', loadComponent: () => import('./lazy/lazy.component').then(c => c.LazyComponent)}];`,
+      `routes: Routes = [{path: 'lazy', loadComponent: () => import('./lazy/lazy').then(c => c.Lazy)}];`,
     ),
   ]);
 
@@ -73,47 +69,37 @@ export default async function () {
   {
     const response = await fetch(`http://localhost:${port}/main.js`);
     const body = await response.text();
-    if (!body.match(/\$\$_E2E_GOLDEN_VALUE_1/)) {
-      throw new Error('Expected golden value 1.');
-    }
-    if (!body.match(/\$\$_E2E_GOLDEN_VALUE_2/)) {
-      throw new Error('Expected golden value 2.');
-    }
-    if (!body.match(/\$\$_E2E_GOLDEN_VALUE_3/)) {
-      throw new Error('Expected golden value 3.');
-    }
+    assert.match(body, /\$\$_E2E_GOLDEN_VALUE_1/);
+    assert.match(body, /\$\$_E2E_GOLDEN_VALUE_2/);
+    assert.match(body, /\$\$_E2E_GOLDEN_VALUE_3/);
   }
 
   await setTimeout(500);
   await Promise.all([
     waitForAnyProcessOutputToMatch(validBundleRegEx),
     writeMultipleFiles({
-      'src/app/app.component.html': '<h1>testingTESTING123</h1>',
+      'src/app/app.html': '<h1>testingTESTING123</h1>',
     }),
   ]);
 
   {
     const response = await fetch(`http://localhost:${port}/main.js`);
     const body = await response.text();
-    if (!body.match(/testingTESTING123/)) {
-      throw new Error('Expected component HTML to update.');
-    }
+    assert.match(body, /testingTESTING123/);
   }
 
   await setTimeout(500);
   await Promise.all([
     waitForAnyProcessOutputToMatch(validBundleRegEx),
     writeMultipleFiles({
-      'src/app/app.component.css': ':host { color: blue; }',
+      'src/app/app.css': ':host { color: blue; }',
     }),
   ]);
 
   {
     const response = await fetch(`http://localhost:${port}/main.js`);
     const body = await response.text();
-    if (!body.match(/color:\s?blue/)) {
-      throw new Error('Expected component CSS to update.');
-    }
+    assert.match(body, /color:\s?blue/);
   }
 
   await setTimeout(500);
@@ -127,8 +113,6 @@ export default async function () {
   {
     const response = await fetch(`http://localhost:${port}/styles.css`);
     const body = await response.text();
-    if (!body.match(/color:\s?green/)) {
-      throw new Error('Expected global CSS to update.');
-    }
+    assert.match(body, /color:\s?green/);
   }
 }

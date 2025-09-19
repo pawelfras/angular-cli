@@ -10,7 +10,6 @@ import { JsonObject, join, normalize } from '@angular-devkit/core';
 import {
   MergeStrategy,
   Rule,
-  SchematicContext,
   Tree,
   apply,
   applyTemplates,
@@ -23,22 +22,59 @@ import {
   strings,
   url,
 } from '@angular-devkit/schematics';
-import { NodePackageInstallTask } from '@angular-devkit/schematics/tasks';
-import { Schema as ComponentOptions } from '../component/schema';
-import { NodeDependencyType, addPackageJsonDependency } from '../utility/dependencies';
+import { Schema as ComponentOptions, Style as ComponentStyle } from '../component/schema';
+import {
+  DependencyType,
+  ExistingBehavior,
+  InstallBehavior,
+  addDependency,
+} from '../utility/dependency';
+import { JSONFile } from '../utility/json-file';
 import { latestVersions } from '../utility/latest-versions';
 import { relativePathToWorkspaceRoot } from '../utility/paths';
 import { getWorkspace, updateWorkspace } from '../utility/workspace';
 import { Builders, ProjectType } from '../utility/workspace-models';
 import { Schema as ApplicationOptions, Style } from './schema';
 
+const APPLICATION_DEV_DEPENDENCIES = [
+  { name: '@angular/compiler-cli', version: latestVersions.Angular },
+  { name: '@angular/build', version: latestVersions.AngularBuild },
+  { name: 'typescript', version: latestVersions['typescript'] },
+];
+
+function addTsProjectReference(...paths: string[]) {
+  return (host: Tree) => {
+    if (!host.exists('tsconfig.json')) {
+      return host;
+    }
+
+    const newReferences = paths.map((path) => ({ path }));
+
+    const file = new JSONFile(host, 'tsconfig.json');
+    const jsonPath = ['references'];
+    const value = file.get(jsonPath);
+    file.modify(jsonPath, Array.isArray(value) ? [...value, ...newReferences] : newReferences);
+  };
+}
+
 export default function (options: ApplicationOptions): Rule {
-  return async (host: Tree, context: SchematicContext) => {
+  return async (host: Tree) => {
+    const isTailwind = options.style === Style.Tailwind;
+    if (isTailwind) {
+      options.style = Style.Css;
+    }
+
     const { appDir, appRootSelector, componentOptions, folderName, sourceDir } =
       await getAppOptions(host, options);
 
+    const suffix = options.fileNameStyleGuide === '2016' ? '.component' : '';
+
     return chain([
-      addAppToWorkspaceFile(options, appDir, folderName),
+      addAppToWorkspaceFile(options, appDir),
+      addTsProjectReference('./' + join(normalize(appDir), 'tsconfig.app.json')),
+      options.skipTests || options.minimal
+        ? noop()
+        : addTsProjectReference('./' + join(normalize(appDir), 'tsconfig.spec.json')),
       options.standalone
         ? noop()
         : schematic('module', {
@@ -49,6 +85,7 @@ export default function (options: ApplicationOptions): Rule {
             routingScope: 'Root',
             path: sourceDir,
             project: options.name,
+            typeSeparator: undefined,
           }),
       schematic('component', {
         name: 'app',
@@ -73,6 +110,7 @@ export default function (options: ApplicationOptions): Rule {
             relativePathToWorkspaceRoot: relativePathToWorkspaceRoot(appDir),
             appName: options.name,
             folderName,
+            suffix,
           }),
           move(appDir),
         ]),
@@ -84,7 +122,7 @@ export default function (options: ApplicationOptions): Rule {
             ? filter((path) => !path.endsWith('tsconfig.spec.json.template'))
             : noop(),
           componentOptions.inlineTemplate
-            ? filter((path) => !path.endsWith('component.html.template'))
+            ? filter((path) => !path.endsWith('app__suffix__.html.template'))
             : noop(),
           applyTemplates({
             utils: strings,
@@ -93,6 +131,7 @@ export default function (options: ApplicationOptions): Rule {
             relativePathToWorkspaceRoot: relativePathToWorkspaceRoot(appDir),
             appName: options.name,
             folderName,
+            suffix,
           }),
           move(appDir),
         ]),
@@ -101,48 +140,53 @@ export default function (options: ApplicationOptions): Rule {
       options.ssr
         ? schematic('ssr', {
             project: options.name,
-            serverRouting: options.serverRouting,
             skipInstall: true,
           })
         : noop(),
       options.skipPackageJson ? noop() : addDependenciesToPackageJson(options),
+      isTailwind
+        ? schematic('tailwind', {
+            project: options.name,
+            skipInstall: options.skipInstall,
+          })
+        : noop(),
     ]);
   };
 }
 
-function addDependenciesToPackageJson(options: ApplicationOptions) {
-  return (host: Tree, context: SchematicContext) => {
-    [
-      {
-        type: NodeDependencyType.Dev,
-        name: '@angular/compiler-cli',
-        version: latestVersions.Angular,
-      },
-      {
-        type: NodeDependencyType.Dev,
-        name: '@angular-devkit/build-angular',
-        version: latestVersions.DevkitBuildAngular,
-      },
-      {
-        type: NodeDependencyType.Dev,
-        name: 'typescript',
-        version: latestVersions['typescript'],
-      },
-    ].forEach((dependency) => addPackageJsonDependency(host, dependency));
+function addDependenciesToPackageJson(options: ApplicationOptions): Rule {
+  const rules: Rule[] = APPLICATION_DEV_DEPENDENCIES.map((dependency) =>
+    addDependency(dependency.name, dependency.version, {
+      type: DependencyType.Dev,
+      existing: ExistingBehavior.Skip,
+      install: options.skipInstall ? InstallBehavior.None : InstallBehavior.Auto,
+    }),
+  );
 
-    if (!options.skipInstall) {
-      context.addTask(new NodePackageInstallTask());
-    }
+  if (!options.zoneless) {
+    rules.push(
+      addDependency('zone.js', latestVersions['zone.js'], {
+        type: DependencyType.Default,
+        existing: ExistingBehavior.Skip,
+        install: options.skipInstall ? InstallBehavior.None : InstallBehavior.Auto,
+      }),
+    );
+  }
 
-    return host;
-  };
+  if (options.style === Style.Less) {
+    rules.push(
+      addDependency('less', latestVersions['less'], {
+        type: DependencyType.Dev,
+        existing: ExistingBehavior.Skip,
+        install: options.skipInstall ? InstallBehavior.None : InstallBehavior.Auto,
+      }),
+    );
+  }
+
+  return chain(rules);
 }
 
-function addAppToWorkspaceFile(
-  options: ApplicationOptions,
-  appDir: string,
-  folderName: string,
-): Rule {
+function addAppToWorkspaceFile(options: ApplicationOptions, appDir: string): Rule {
   let projectRoot = appDir;
   if (projectRoot) {
     projectRoot += '/';
@@ -194,6 +238,20 @@ function addAppToWorkspaceFile(
     });
   }
 
+  if (options.fileNameStyleGuide === '2016') {
+    const schematicsWithTypeSymbols = ['component', 'directive', 'service'];
+    schematicsWithTypeSymbols.forEach((type) => {
+      const schematicDefaults = (schematics[`@schematics/angular:${type}`] ??= {}) as JsonObject;
+      schematicDefaults.type = type;
+      schematicDefaults.addTypeToClassName = false;
+    });
+
+    const schematicsWithTypeSeparator = ['guard', 'interceptor', 'module', 'pipe', 'resolver'];
+    schematicsWithTypeSeparator.forEach((type) => {
+      ((schematics[`@schematics/angular:${type}`] ??= {}) as JsonObject).typeSeparator = '.';
+    });
+  }
+
   const sourceRoot = join(normalize(projectRoot), 'src');
   let budgets: { type: string; maximumWarning: string; maximumError: string }[] = [];
   if (options.strict) {
@@ -234,18 +292,15 @@ function addAppToWorkspaceFile(
     schematics,
     targets: {
       build: {
-        builder: Builders.Application,
+        builder: Builders.BuildApplication,
         defaultConfiguration: 'production',
         options: {
-          outputPath: `dist/${folderName}`,
-          index: `${sourceRoot}/index.html`,
           browser: `${sourceRoot}/main.ts`,
-          polyfills: options.experimentalZoneless ? [] : ['zone.js'],
+          polyfills: options.zoneless ? undefined : ['zone.js'],
           tsConfig: `${projectRoot}tsconfig.app.json`,
           inlineStyleLanguage,
           assets: [{ 'glob': '**/*', 'input': `${projectRoot}public` }],
           styles: [`${sourceRoot}/styles.${options.style}`],
-          scripts: [],
         },
         configurations: {
           production: {
@@ -260,7 +315,7 @@ function addAppToWorkspaceFile(
         },
       },
       serve: {
-        builder: Builders.DevServer,
+        builder: Builders.BuildDevServer,
         defaultConfiguration: 'development',
         options: {},
         configurations: {
@@ -273,19 +328,18 @@ function addAppToWorkspaceFile(
         },
       },
       'extract-i18n': {
-        builder: Builders.ExtractI18n,
+        builder: Builders.BuildExtractI18n,
       },
       test: options.minimal
         ? undefined
         : {
-            builder: Builders.Karma,
+            builder: Builders.BuildKarma,
             options: {
-              polyfills: options.experimentalZoneless ? [] : ['zone.js', 'zone.js/testing'],
+              polyfills: options.zoneless ? undefined : ['zone.js', 'zone.js/testing'],
               tsConfig: `${projectRoot}tsconfig.spec.json`,
               inlineStyleLanguage,
               assets: [{ 'glob': '**/*', 'input': `${projectRoot}public` }],
               styles: [`${sourceRoot}/styles.${options.style}`],
-              scripts: [],
             },
           },
     },
@@ -343,16 +397,21 @@ function getComponentOptions(options: ApplicationOptions): Partial<ComponentOpti
         inlineStyle: options.inlineStyle,
         inlineTemplate: options.inlineTemplate,
         skipTests: options.skipTests,
-        style: options.style,
+        style: options.style as unknown as ComponentStyle,
         viewEncapsulation: options.viewEncapsulation,
       }
     : {
         inlineStyle: options.inlineStyle ?? true,
         inlineTemplate: options.inlineTemplate ?? true,
         skipTests: true,
-        style: options.style,
+        style: options.style as unknown as ComponentStyle,
         viewEncapsulation: options.viewEncapsulation,
       };
+
+  if (options.fileNameStyleGuide === '2016') {
+    componentOptions.type = 'component';
+    componentOptions.addTypeToClassName = false;
+  }
 
   return componentOptions;
 }

@@ -10,12 +10,11 @@ import { execSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import build from './build.mjs';
 import jsonHelp, { createTemporaryProject } from './json-help.mjs';
 import { PackageInfo, packages } from './packages.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dirname;
 
 // Added to the README.md of the snapshot. This is markdown.
 const readmeHeaderFn = (name: string, snapshotRepo: string) => `
@@ -161,7 +160,7 @@ export default async function (opts: SnapshotsOptions) {
 
   if (githubToken) {
     console.info('Setting up global git name.');
-    _exec('git', ['config', '--global', 'user.email', 'circleci@angular.dev'], {});
+    _exec('git', ['config', '--global', 'user.email', 'dev-infra@angular.dev'], {});
     _exec('git', ['config', '--global', 'user.name', 'Angular Builds'], {});
     _exec('git', ['config', '--global', 'push.default', 'simple'], {});
   }

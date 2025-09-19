@@ -164,6 +164,7 @@ export function createAngularCompilerHost(
   typescript: typeof ts,
   compilerOptions: AngularCompilerOptions,
   hostOptions: AngularHostOptions,
+  packageJsonCache: ts.PackageJsonInfoCache | undefined,
 ): AngularCompilerHost {
   // Create TypeScript compiler host
   const host: AngularCompilerHost = typescript.createIncrementalCompilerHost(compilerOptions);
@@ -207,6 +208,9 @@ export function createAngularCompilerHost(
 
   host.resourceNameToFileName = function (resourceName, containingFile) {
     const resolvedPath = nodePath.join(nodePath.dirname(containingFile), resourceName);
+    if (!this.fileExists(resolvedPath)) {
+      return null;
+    }
 
     // All resource names that have template file extensions are assumed to be templates
     // TODO: Update compiler to provide the resource type to avoid extension matching here.
@@ -229,16 +233,17 @@ export function createAngularCompilerHost(
     return hostOptions.modifiedFiles;
   };
 
+  // Provide a resolution cache to ensure package.json lookups are cached
+  const resolutionCache = typescript.createModuleResolutionCache(
+    host.getCurrentDirectory(),
+    host.getCanonicalFileName.bind(host),
+    compilerOptions,
+    packageJsonCache,
+  );
+  host.getModuleResolutionCache = () => resolutionCache;
+
   // Augment TypeScript Host for file replacements option
   if (hostOptions.fileReplacements) {
-    // Provide a resolution cache since overriding resolution prevents automatic creation
-    const resolutionCache = typescript.createModuleResolutionCache(
-      host.getCurrentDirectory(),
-      host.getCanonicalFileName.bind(host),
-      compilerOptions,
-    );
-    host.getModuleResolutionCache = () => resolutionCache;
-
     augmentHostWithReplacements(typescript, host, hostOptions.fileReplacements, resolutionCache);
   }
 

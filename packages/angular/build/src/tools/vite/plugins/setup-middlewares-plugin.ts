@@ -17,8 +17,9 @@ import {
   createAngularIndexHtmlMiddleware,
   createAngularSsrExternalMiddleware,
   createAngularSsrInternalMiddleware,
+  createChromeDevtoolsMiddleware,
 } from '../middlewares';
-import { AngularMemoryOutputFiles } from '../utils';
+import { AngularMemoryOutputFiles, AngularOutputAssets } from '../utils';
 
 export enum ServerSsrMode {
   /**
@@ -47,12 +48,14 @@ export enum ServerSsrMode {
 
 interface AngularSetupMiddlewaresPluginOptions {
   outputFiles: AngularMemoryOutputFiles;
-  assets: Map<string, string>;
+  assets: AngularOutputAssets;
   extensionMiddleware?: Connect.NextHandleFunction[];
   indexHtmlTransformer?: (content: string) => Promise<string>;
   componentStyles: Map<string, ComponentStyleRecord>;
   templateUpdates: Map<string, string>;
   ssrMode: ServerSsrMode;
+  resetComponentUpdates: () => void;
+  projectRoot: string;
 }
 
 async function createEncapsulateStyle(): Promise<
@@ -82,11 +85,12 @@ export function createAngularSetupMiddlewaresPlugin(
         componentStyles,
         templateUpdates,
         ssrMode,
+        resetComponentUpdates,
       } = options;
 
       // Headers, assets and resources get handled first
       server.middlewares.use(createAngularHeadersMiddleware(server));
-      server.middlewares.use(createAngularComponentMiddleware(templateUpdates));
+      server.middlewares.use(createAngularComponentMiddleware(server, templateUpdates));
       server.middlewares.use(
         createAngularAssetsMiddleware(
           server,
@@ -95,6 +99,10 @@ export function createAngularSetupMiddlewaresPlugin(
           componentStyles,
           await createEncapsulateStyle(),
         ),
+      );
+
+      server.middlewares.use(
+        createChromeDevtoolsMiddleware(server.config.cacheDir, options.projectRoot),
       );
 
       extensionMiddleware?.forEach((middleware) => server.middlewares.use(middleware));
@@ -117,7 +125,12 @@ export function createAngularSetupMiddlewaresPlugin(
 
         server.middlewares.use(angularHtmlFallbackMiddleware);
         server.middlewares.use(
-          createAngularIndexHtmlMiddleware(server, outputFiles, indexHtmlTransformer),
+          createAngularIndexHtmlMiddleware(
+            server,
+            outputFiles,
+            resetComponentUpdates,
+            indexHtmlTransformer,
+          ),
         );
       };
     },

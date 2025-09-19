@@ -12,6 +12,8 @@ import { formatSize } from './format-bytes';
 // Re-export to avoid direct schema importing throughout code
 export { type BudgetEntry, BudgetType };
 
+export const BYTES_IN_KILOBYTE = 1000;
+
 interface Size {
   size: number;
   label?: string;
@@ -239,7 +241,7 @@ class AllScriptCalculator extends Calculator {
 class AllCalculator extends Calculator {
   calculate() {
     const size = this.assets
-      .filter((asset) => !asset.name.endsWith('.map'))
+      .filter((asset) => !asset.name.endsWith('.map') && !asset.componentStyle)
       .map((asset) => this.getAssetSize(asset))
       .reduce((total: number, size: number) => total + size, 0);
 
@@ -267,7 +269,7 @@ class AnyScriptCalculator extends Calculator {
 class AnyCalculator extends Calculator {
   calculate() {
     return this.assets
-      .filter((asset) => !asset.name.endsWith('.map'))
+      .filter((asset) => !asset.name.endsWith('.map') && !asset.componentStyle)
       .map((asset) => ({
         size: this.getAssetSize(asset),
         label: asset.name,
@@ -306,13 +308,13 @@ function calculateBytes(input: string, baseline?: string, factor: 1 | -1 = 1): n
       value = (baselineBytes * value) / 100;
       break;
     case 'kb':
-      value *= 1024;
+      value *= BYTES_IN_KILOBYTE;
       break;
     case 'mb':
-      value *= 1024 * 1024;
+      value *= BYTES_IN_KILOBYTE * BYTES_IN_KILOBYTE;
       break;
     case 'gb':
-      value *= 1024 * 1024 * 1024;
+      value *= BYTES_IN_KILOBYTE * BYTES_IN_KILOBYTE * BYTES_IN_KILOBYTE;
       break;
   }
 

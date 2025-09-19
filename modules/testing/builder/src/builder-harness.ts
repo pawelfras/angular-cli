@@ -54,6 +54,11 @@ export interface BuilderHarnessExecutionOptions {
   outputLogsOnException: boolean;
   useNativeFileWatching: boolean;
   signal: AbortSignal;
+  additionalExecuteArguments: unknown[];
+}
+
+interface BuilderHandlerFnWithVarArgs<T> extends BuilderHandlerFn<T> {
+  (input: T, context: BuilderContext, ...args: unknown[]): BuilderOutputLike;
 }
 
 /**
@@ -99,11 +104,19 @@ export class BuilderHarness<T> {
       ...builderInfo,
     };
 
-    this.schemaRegistry.addPostTransform(json.schema.transforms.addUndefinedDefaults);
+    if (builderInfo?.builderName?.startsWith('@angular/build:')) {
+      this.schemaRegistry.addPostTransform(json.schema.transforms.addUndefinedObjectDefaults);
+    } else {
+      this.schemaRegistry.addPostTransform(json.schema.transforms.addUndefinedDefaults);
+    }
   }
 
   private resolvePath(path: string): string {
     return join(getSystemPath(this.host.root()), path);
+  }
+
+  resetProjectMetadata(): void {
+    this.projectMetadata = DEFAULT_PROJECT_METADATA;
   }
 
   useProject(name: string, metadata: Record<string, unknown> = {}): this {
@@ -250,13 +263,19 @@ export class BuilderHarness<T> {
     }
 
     const logs: logging.LogEntry[] = [];
-    context.logger.subscribe((e) => logs.push(e));
+    const logger$ = context.logger.subscribe((e) => logs.push(e));
 
     return observableFrom(this.schemaRegistry.compile(this.builderInfo.optionSchema)).pipe(
       mergeMap((validator) => validator(targetOptions)),
       map((validationResult) => validationResult.data),
       mergeMap((data) =>
-        convertBuilderOutputToObservable(this.builderHandler(data as T & json.JsonObject, context)),
+        convertBuilderOutputToObservable(
+          (this.builderHandler as BuilderHandlerFnWithVarArgs<T>)(
+            data as T & json.JsonObject,
+            context,
+            ...(options.additionalExecuteArguments ?? []),
+          ),
+        ),
       ),
       map((buildResult) => ({ result: buildResult, error: undefined })),
       catchError((error) => {
@@ -283,6 +302,7 @@ export class BuilderHarness<T> {
       }),
       finalize(() => {
         this.watcherNotifier = undefined;
+        logger$.unsubscribe();
 
         for (const teardown of context.teardowns) {
           // eslint-disable-next-line @typescript-eslint/no-floating-promises

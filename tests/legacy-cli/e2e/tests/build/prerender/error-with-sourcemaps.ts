@@ -19,8 +19,8 @@ export default async function () {
   await installWorkspacePackages();
 
   await writeMultipleFiles({
-    'src/app/app.component.ts': `
-      import { Component } from '@angular/core';
+    'src/app/app.ts': `
+      import { Component, signal } from '@angular/core';
       import { CommonModule } from '@angular/common';
       import { RouterOutlet } from '@angular/router';
 
@@ -28,11 +28,11 @@ export default async function () {
         selector: 'app-root',
         standalone: true,
         imports: [CommonModule, RouterOutlet],
-        templateUrl: './app.component.html',
-        styleUrls: ['./app.component.css']
+        templateUrl: './app.html',
+        styleUrls: ['./app.css']
       })
-      export class AppComponent {
-      title = 'test-ssr';
+      export class App {
+      protected readonly title = signal('test-ssr');
 
       constructor() {
         console.log(window)
@@ -48,6 +48,6 @@ export default async function () {
     message,
     // When babel is used it will add names to the sourcemap and `constructor` will be used in the stack trace.
     // This will currently only happen if AOT and script optimizations are set which enables advanced optimizations.
-    /window is not defined[.\s\S]*(?:constructor|_AppComponent) \(.*app\.component\.ts\:\d+:\d+\)/,
+    /window is not defined[.\s\S]*(?:constructor|_App) \(.*app\.ts\:\d+:\d+\)/,
   );
 }

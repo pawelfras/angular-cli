@@ -70,17 +70,34 @@ describe('SSR Schematic', () => {
       expect((schematicRunner.tasks[0].options as { command: string }).command).toBe('install');
     });
 
-    it(`should update 'tsconfig.app.json' files with Express main file`, async () => {
+    it(`should not update 'tsconfig.app.json' files with Express main file already included`, async () => {
       const tree = await schematicRunner.runSchematic('ssr', defaultOptions, appTree);
       const { files } = tree.readJson('/projects/test-app/tsconfig.app.json') as {
         files: string[];
       };
 
-      expect(files).toEqual(['src/main.ts', 'src/main.server.ts', 'src/server.ts']);
+      expect(files).toBeUndefined();
+    });
+
+    it(`should update 'tsconfig.app.json' files with Express main file if not included`, async () => {
+      const appTsConfigContent = appTree.readJson('/projects/test-app/tsconfig.app.json') as {
+        include?: string[];
+      };
+      appTsConfigContent.include = [];
+      appTree.overwrite('/projects/test-app/tsconfig.app.json', JSON.stringify(appTsConfigContent));
+
+      const tree = await schematicRunner.runSchematic('ssr', defaultOptions, appTree);
+      const { files } = tree.readJson('/projects/test-app/tsconfig.app.json') as {
+        files: string[];
+      };
+
+      expect(files).toContain('src/server.ts');
     });
   });
 
   describe('standalone application', () => {
+    const originalTty = process.env['NG_FORCE_TTY'];
+
     beforeEach(async () => {
       appTree = await schematicRunner.runExternalSchematic(
         '@schematics/angular',
@@ -98,6 +115,11 @@ describe('SSR Schematic', () => {
       );
     });
 
+    afterEach(() => {
+      process.env['NG_FORCE_TTY'] = originalTty;
+      delete process.versions.webcontainer;
+    });
+
     it('should add script section in package.json', async () => {
       const tree = await schematicRunner.runSchematic('ssr', defaultOptions, appTree);
       const { scripts } = tree.readJson('/package.json') as { scripts: Record<string, string> };
@@ -111,7 +133,7 @@ describe('SSR Schematic', () => {
       const build = config.projects['test-app'].architect.build;
 
       build.options.outputPath = {
-        base: build.options.outputPath,
+        base: 'dist/test-app',
         browser: 'public',
         server: 'node-server',
       };
@@ -123,7 +145,7 @@ describe('SSR Schematic', () => {
       expect(scripts['serve:ssr:test-app']).toBe(`node dist/test-app/node-server/server.mjs`);
 
       const serverFileContent = tree.readContent('/projects/test-app/src/server.ts');
-      expect(serverFileContent).toContain(`resolve(serverDistFolder, '../public')`);
+      expect(serverFileContent).toContain(`join(import.meta.dirname, '../public')`);
     });
 
     it(`removes "outputPath.browser" when it's an empty string`, async () => {
@@ -132,7 +154,7 @@ describe('SSR Schematic', () => {
       const build = config.projects['test-app'].architect.build;
 
       build.options.outputPath = {
-        base: build.options.outputPath,
+        base: 'dist/test-app',
         browser: '',
         server: 'node-server',
       };
@@ -160,7 +182,7 @@ describe('SSR Schematic', () => {
       build.builder = '@angular-devkit/build-angular:browser';
       build.options = {
         ...build.options,
-        main: build.options.browser,
+        main: 'projects/test-app/src/main.ts',
         browser: undefined,
       };
 

@@ -7,9 +7,9 @@
  */
 
 import { interpolateName } from 'loader-utils';
-import * as path from 'path';
+import * as path from 'node:path';
+import * as url from 'node:url';
 import { Declaration, Plugin } from 'postcss';
-import * as url from 'url';
 import { assertIsError } from '../../../utils/error';
 
 function wrapUrl(url: string): string {
@@ -115,10 +115,16 @@ export default function (options?: PostcssCliResourcesOptions): Plugin {
           return;
         }
 
-        let outputPath = interpolateName({ resourcePath: result }, filename(result), {
-          content,
-          context: loader.context || loader.rootContext,
-        }).replace(/\\|\//g, '-');
+        let outputPath = interpolateName(
+          // TODO: Revisit. Previously due to lack of type safety, this object
+          // was fine, but in practice it doesn't match the type of the loader context.
+          { resourcePath: result } as Parameters<typeof interpolateName>[0],
+          filename(result),
+          {
+            content,
+            context: loader.context || loader.rootContext,
+          },
+        ).replace(/\\|\//g, '-');
 
         if (resourcesOutputPath) {
           outputPath = path.posix.join(resourcesOutputPath, outputPath);

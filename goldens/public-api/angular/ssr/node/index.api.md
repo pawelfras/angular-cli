@@ -5,15 +5,17 @@
 ```ts
 
 import { ApplicationRef } from '@angular/core';
-import type { Http2ServerRequest } from 'node:http2';
-import type { Http2ServerResponse } from 'node:http2';
-import type { IncomingMessage } from 'node:http';
-import type { ServerResponse } from 'node:http';
+import { BootstrapContext } from '@angular/platform-browser';
+import { Http2ServerRequest } from 'node:http2';
+import { Http2ServerResponse } from 'node:http2';
+import { IncomingMessage } from 'node:http';
+import { ServerResponse } from 'node:http';
 import { StaticProvider } from '@angular/core';
 import { Type } from '@angular/core';
 
 // @public
 export class AngularNodeAppEngine {
+    constructor();
     handle(request: IncomingMessage | Http2ServerRequest, requestContext?: unknown): Promise<Response | null>;
 }
 
@@ -25,14 +27,14 @@ export class CommonEngine {
 
 // @public (undocumented)
 export interface CommonEngineOptions {
-    bootstrap?: Type<{}> | (() => Promise<ApplicationRef>);
+    bootstrap?: Type<{}> | ((context: BootstrapContext) => Promise<ApplicationRef>);
     enablePerformanceProfiler?: boolean;
     providers?: StaticProvider[];
 }
 
 // @public (undocumented)
 export interface CommonEngineRenderOptions {
-    bootstrap?: Type<{}> | (() => Promise<ApplicationRef>);
+    bootstrap?: Type<{}> | ((context: BootstrapContext) => Promise<ApplicationRef>);
     // (undocumented)
     document?: string;
     // (undocumented)
@@ -57,7 +59,7 @@ export function isMainModule(url: string): boolean;
 export type NodeRequestHandlerFunction = (req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) => Promise<void> | void;
 
 // @public
-export function writeResponseToNodeResponse(source: Response, destination: ServerResponse | Http2ServerResponse<Http2ServerRequest>): Promise<void>;
+export function writeResponseToNodeResponse(source: Response, destination: ServerResponse | Http2ServerResponse): Promise<void>;
 
 // (No @packageDocumentation comment for this package)
 

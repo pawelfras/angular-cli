@@ -8,7 +8,6 @@
 
 import {
   Rule,
-  SchematicContext,
   Tree,
   apply,
   applyTemplates,
@@ -20,15 +19,27 @@ import {
   strings,
   url,
 } from '@angular-devkit/schematics';
-import { NodePackageInstallTask } from '@angular-devkit/schematics/tasks';
 import { join } from 'node:path/posix';
-import { NodeDependencyType, addPackageJsonDependency } from '../utility/dependencies';
+import {
+  DependencyType,
+  ExistingBehavior,
+  InstallBehavior,
+  addDependency,
+  getDependency,
+} from '../utility/dependency';
 import { JSONFile } from '../utility/json-file';
 import { latestVersions } from '../utility/latest-versions';
 import { relativePathToWorkspaceRoot } from '../utility/paths';
 import { getWorkspace, updateWorkspace } from '../utility/workspace';
 import { Builders, ProjectType } from '../utility/workspace-models';
 import { Schema as LibraryOptions } from './schema';
+
+const LIBRARY_DEV_DEPENDENCIES = [
+  { name: '@angular/compiler-cli', version: latestVersions.Angular },
+  { name: '@angular/build', version: latestVersions.AngularBuild },
+  { name: 'ng-packagr', version: latestVersions.NgPackagr },
+  { name: 'typescript', version: latestVersions['typescript'] },
+];
 
 function updateTsConfig(packageName: string, ...paths: string[]) {
   return (host: Tree) => {
@@ -43,44 +54,43 @@ function updateTsConfig(packageName: string, ...paths: string[]) {
   };
 }
 
-function addDependenciesToPackageJson() {
+function addTsProjectReference(...paths: string[]) {
   return (host: Tree) => {
-    [
-      {
-        type: NodeDependencyType.Dev,
-        name: '@angular/compiler-cli',
-        version: latestVersions.Angular,
-      },
-      {
-        type: NodeDependencyType.Dev,
-        name: '@angular-devkit/build-angular',
-        version: latestVersions.DevkitBuildAngular,
-      },
-      {
-        type: NodeDependencyType.Dev,
-        name: 'ng-packagr',
-        version: latestVersions['ng-packagr'],
-      },
-      {
-        type: NodeDependencyType.Default,
-        name: 'tslib',
-        version: latestVersions['tslib'],
-      },
-      {
-        type: NodeDependencyType.Dev,
-        name: 'typescript',
-        version: latestVersions['typescript'],
-      },
-    ].forEach((dependency) => addPackageJsonDependency(host, dependency));
+    if (!host.exists('tsconfig.json')) {
+      return host;
+    }
 
-    return host;
+    const newReferences = paths.map((path) => ({ path }));
+
+    const file = new JSONFile(host, 'tsconfig.json');
+    const jsonPath = ['references'];
+    const value = file.get(jsonPath);
+    file.modify(jsonPath, Array.isArray(value) ? [...value, ...newReferences] : newReferences);
   };
+}
+
+function addDependenciesToPackageJson(skipInstall: boolean): Rule {
+  return chain([
+    ...LIBRARY_DEV_DEPENDENCIES.map((dependency) =>
+      addDependency(dependency.name, dependency.version, {
+        type: DependencyType.Dev,
+        existing: ExistingBehavior.Skip,
+        install: skipInstall ? InstallBehavior.None : InstallBehavior.Auto,
+      }),
+    ),
+    addDependency('tslib', latestVersions['tslib'], {
+      type: DependencyType.Default,
+      existing: ExistingBehavior.Skip,
+      install: skipInstall ? InstallBehavior.None : InstallBehavior.Auto,
+    }),
+  ]);
 }
 
 function addLibToWorkspaceFile(
   options: LibraryOptions,
   projectRoot: string,
   projectName: string,
+  hasZoneDependency: boolean,
 ): Rule {
   return updateWorkspace((workspace) => {
     workspace.projects.add({
@@ -91,11 +101,8 @@ function addLibToWorkspaceFile(
       prefix: options.prefix,
       targets: {
         build: {
-          builder: Builders.NgPackagr,
+          builder: Builders.BuildNgPackagr,
           defaultConfiguration: 'production',
-          options: {
-            project: `${projectRoot}/ng-package.json`,
-          },
           configurations: {
             production: {
               tsConfig: `${projectRoot}/tsconfig.lib.prod.json`,
@@ -106,10 +113,10 @@ function addLibToWorkspaceFile(
           },
         },
         test: {
-          builder: Builders.Karma,
+          builder: Builders.BuildKarma,
           options: {
             tsConfig: `${projectRoot}/tsconfig.spec.json`,
-            polyfills: ['zone.js', 'zone.js/testing'],
+            polyfills: hasZoneDependency ? ['zone.js', 'zone.js/testing'] : undefined,
           },
         },
       },
@@ -160,11 +167,19 @@ export default function (options: LibraryOptions): Rule {
       move(libDir),
     ]);
 
+    const hasZoneDependency = getDependency(host, 'zone.js') !== null;
+
     return chain([
       mergeWith(templateSource),
-      addLibToWorkspaceFile(options, libDir, packageName),
-      options.skipPackageJson ? noop() : addDependenciesToPackageJson(),
+      addLibToWorkspaceFile(options, libDir, packageName, hasZoneDependency),
+      options.skipPackageJson ? noop() : addDependenciesToPackageJson(!!options.skipInstall),
       options.skipTsConfig ? noop() : updateTsConfig(packageName, './' + distRoot),
+      options.skipTsConfig
+        ? noop()
+        : addTsProjectReference(
+            './' + join(libDir, 'tsconfig.lib.json'),
+            './' + join(libDir, 'tsconfig.spec.json'),
+          ),
       options.standalone
         ? noop()
         : schematic('module', {
@@ -173,6 +188,9 @@ export default function (options: LibraryOptions): Rule {
             flat: true,
             path: sourceDir,
             project: packageName,
+            // Explicitly set the `typeSeparator` this also ensures that the generated files are valid even if the `module` schematic
+            // inherits its `typeSeparator` from the workspace.
+            typeSeparator: '-',
           }),
       schematic('component', {
         name: options.name,
@@ -184,18 +202,11 @@ export default function (options: LibraryOptions): Rule {
         export: true,
         standalone: options.standalone,
         project: packageName,
+        // Explicitly set an empty `type` since it doesn't necessarily make sense in a library.
+        // This also ensures that the generated files are valid even if the `component` schematic
+        // inherits its `type` from the workspace.
+        type: '',
       }),
-      schematic('service', {
-        name: options.name,
-        flat: true,
-        path: sourceDir,
-        project: packageName,
-      }),
-      (_tree: Tree, context: SchematicContext) => {
-        if (!options.skipPackageJson && !options.skipInstall) {
-          context.addTask(new NodePackageInstallTask());
-        }
-      },
     ]);
   };
 }

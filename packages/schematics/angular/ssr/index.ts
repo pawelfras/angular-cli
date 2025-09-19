@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import { isJsonObject, join, normalize, strings } from '@angular-devkit/core';
+import { isJsonObject } from '@angular-devkit/core';
 import {
   Rule,
   SchematicContext,
@@ -18,12 +18,14 @@ import {
   mergeWith,
   move,
   schematic,
+  strings,
   url,
 } from '@angular-devkit/schematics';
-import { posix } from 'node:path';
+import { join } from 'node:path/posix';
 import { Schema as ServerOptions } from '../server/schema';
 import {
   DependencyType,
+  ExistingBehavior,
   InstallBehavior,
   addDependency,
   readWorkspace,
@@ -32,10 +34,9 @@ import {
 import { JSONFile } from '../utility/json-file';
 import { latestVersions } from '../utility/latest-versions';
 import { isStandaloneApp } from '../utility/ng-ast-utils';
-import { targetBuildNotFoundError } from '../utility/project-targets';
+import { createProjectSchematic } from '../utility/project';
+import { isUsingApplicationBuilder } from '../utility/project-targets';
 import { getMainFilePath } from '../utility/standalone/util';
-import { ProjectDefinition, getWorkspace } from '../utility/workspace';
-import { Builders } from '../utility/workspace-models';
 
 import { Schema as SSROptions } from './schema';
 
@@ -82,12 +83,9 @@ async function getApplicationBuilderOutputPaths(
     throw new SchematicsException(`Cannot find 'options' for ${projectName} ${target} target.`);
   }
 
-  const { outputPath } = architectTarget.options;
-  if (outputPath === null || outputPath === undefined) {
-    throw new SchematicsException(
-      `outputPath for ${projectName} ${target} target is undeined or null.`,
-    );
-  }
+  let { outputPath } = architectTarget.options;
+  // Use default if not explicitly specified
+  outputPath ??= join('dist', projectName);
 
   const defaultDirs = {
     server: DEFAULT_SERVER_DIR,
@@ -125,7 +123,7 @@ function addScriptsRule({ project }: SSROptions, isUsingApplicationBuilder: bool
     if (isUsingApplicationBuilder) {
       const { base, server } = await getApplicationBuilderOutputPaths(host, project);
       pkg.scripts ??= {};
-      pkg.scripts[`serve:ssr:${project}`] = `node ${posix.join(base, server)}/server.mjs`;
+      pkg.scripts[`serve:ssr:${project}`] = `node ${join(base, server)}/server.mjs`;
     } else {
       const serverDist = await getLegacyOutputPaths(host, project, 'server');
       pkg.scripts = {
@@ -157,6 +155,13 @@ function updateApplicationBuilderTsConfigRule(options: SSROptions): Rule {
     }
 
     const json = new JSONFile(host, tsConfigPath);
+
+    // Skip adding the files entry if the server entry would already be included
+    const include = json.get(['include']);
+    if (Array.isArray(include) && include.includes('src/**/*.ts')) {
+      return;
+    }
+
     const filesPath = ['files'];
     const files = new Set((json.get(filesPath) as string[] | undefined) ?? []);
     files.add('src/server.ts');
@@ -180,7 +185,7 @@ function updateApplicationBuilderWorkspaceConfigRule(
       if (outputPath.browser === '') {
         const base = outputPath.base as string;
         logger.warn(
-          `The output location of the browser build has been updated from "${base}" to "${posix.join(
+          `The output location of the browser build has been updated from "${base}" to "${join(
             base,
             DEFAULT_BROWSER_DIR,
           )}".
@@ -201,10 +206,9 @@ function updateApplicationBuilderWorkspaceConfigRule(
     buildTarget.options = {
       ...buildTarget.options,
       outputPath,
-      outputMode: options.serverRouting ? 'server' : undefined,
-      prerender: options.serverRouting ? undefined : true,
+      outputMode: 'server',
       ssr: {
-        entry: join(normalize(projectSourceRoot), 'server.ts'),
+        entry: join(projectSourceRoot, 'server.ts'),
       },
     };
   });
@@ -223,7 +227,7 @@ function updateWebpackBuilderWorkspaceConfigRule(
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const serverTarget = project.targets.get('server')!;
-    (serverTarget.options ??= {}).main = posix.join(projectSourceRoot, 'server.ts');
+    (serverTarget.options ??= {}).main = join(projectSourceRoot, 'server.ts');
 
     const serveSSRTarget = project.targets.get(SERVE_SSR_TARGET_NAME);
     if (serveSSRTarget) {
@@ -304,10 +308,12 @@ function addDependencies({ skipInstall }: SSROptions, isUsingApplicationBuilder:
     addDependency('express', latestVersions['express'], {
       type: DependencyType.Default,
       install,
+      existing: ExistingBehavior.Replace,
     }),
     addDependency('@types/express', latestVersions['@types/express'], {
       type: DependencyType.Dev,
       install,
+      existing: ExistingBehavior.Replace,
     }),
   ];
 
@@ -335,72 +341,48 @@ function addServerFile(
     if (!project) {
       throw new SchematicsException(`Invalid project name (${projectName})`);
     }
-    const isUsingApplicationBuilder = usingApplicationBuilder(project);
-
-    const browserDistDirectory = isUsingApplicationBuilder
+    const usingApplicationBuilder = isUsingApplicationBuilder(project);
+    const browserDistDirectory = usingApplicationBuilder
       ? (await getApplicationBuilderOutputPaths(host, projectName)).browser
       : await getLegacyOutputPaths(host, projectName, 'build');
 
-    const applicationBuilderFiles =
-      'application-builder' + (options.serverRouting ? '' : '-common-engine');
-
     return mergeWith(
-      apply(
-        url(`./files/${isUsingApplicationBuilder ? applicationBuilderFiles : 'server-builder'}`),
-        [
-          applyTemplates({
-            ...strings,
-            ...options,
-            browserDistDirectory,
-            isStandalone,
-          }),
-          move(projectSourceRoot),
-        ],
-      ),
+      apply(url(`./files/${usingApplicationBuilder ? 'application-builder' : 'server-builder'}`), [
+        applyTemplates({
+          ...strings,
+          ...options,
+          browserDistDirectory,
+          isStandalone,
+        }),
+        move(projectSourceRoot),
+      ]),
     );
   };
 }
 
-export default function (options: SSROptions): Rule {
-  return async (host, context) => {
-    const browserEntryPoint = await getMainFilePath(host, options.project);
-    const isStandalone = isStandaloneApp(host, browserEntryPoint);
+export default createProjectSchematic<SSROptions>(async (options, { project, tree, context }) => {
+  const browserEntryPoint = await getMainFilePath(tree, options.project);
+  const isStandalone = isStandaloneApp(tree, browserEntryPoint);
 
-    const workspace = await getWorkspace(host);
-    const clientProject = workspace.projects.get(options.project);
-    if (!clientProject) {
-      throw targetBuildNotFoundError();
-    }
+  const usingApplicationBuilder = isUsingApplicationBuilder(project);
+  const sourceRoot = project.sourceRoot ?? join(project.root, 'src');
 
-    const isUsingApplicationBuilder = usingApplicationBuilder(clientProject);
-
-    const sourceRoot = clientProject.sourceRoot ?? posix.join(clientProject.root, 'src');
-
-    return chain([
-      schematic('server', {
-        ...options,
-        skipInstall: true,
-      }),
-      ...(isUsingApplicationBuilder
-        ? [
-            updateApplicationBuilderWorkspaceConfigRule(sourceRoot, options, context),
-            updateApplicationBuilderTsConfigRule(options),
-          ]
-        : [
-            updateWebpackBuilderServerTsConfigRule(options),
-            updateWebpackBuilderWorkspaceConfigRule(sourceRoot, options),
-          ]),
-      addServerFile(sourceRoot, options, isStandalone),
-      addScriptsRule(options, isUsingApplicationBuilder),
-      addDependencies(options, isUsingApplicationBuilder),
-    ]);
-  };
-}
-
-function usingApplicationBuilder(project: ProjectDefinition) {
-  const buildBuilder = project.targets.get('build')?.builder;
-  const isUsingApplicationBuilder =
-    buildBuilder === Builders.Application || buildBuilder === Builders.BuildApplication;
-
-  return isUsingApplicationBuilder;
-}
+  return chain([
+    schematic('server', {
+      ...options,
+      skipInstall: true,
+    }),
+    ...(usingApplicationBuilder
+      ? [
+          updateApplicationBuilderWorkspaceConfigRule(sourceRoot, options, context),
+          updateApplicationBuilderTsConfigRule(options),
+        ]
+      : [
+          updateWebpackBuilderServerTsConfigRule(options),
+          updateWebpackBuilderWorkspaceConfigRule(sourceRoot, options),
+        ]),
+    addServerFile(sourceRoot, options, isStandalone),
+    addScriptsRule(options, usingApplicationBuilder),
+    addDependencies(options, usingApplicationBuilder),
+  ]);
+});

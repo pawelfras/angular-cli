@@ -1,4 +1,5 @@
-import { join } from 'path';
+import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { execAndWaitForOutputToMatch, ng } from '../../utils/process';
 import { updateJsonFile } from '../../utils/project';
 import { expectToFail } from '../../utils/utils';
@@ -20,9 +21,7 @@ export default async function () {
 
   try {
     const { message } = await expectToFail(() => ng('build'));
-    if (!message.includes(errorMessage)) {
-      throw new Error(`Expected build to fail with: '${errorMessage}'.`);
-    }
+    assert.match(message, new RegExp(errorMessage));
 
     // Help should still work
     await execAndWaitForOutputToMatch('ng', ['build', '--help'], /--configuration/);

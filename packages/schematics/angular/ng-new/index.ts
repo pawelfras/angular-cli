@@ -57,8 +57,8 @@ export default function (options: NgNewOptions): Rule {
     minimal: options.minimal,
     standalone: options.standalone,
     ssr: options.ssr,
-    serverRouting: options.serverRouting,
-    experimentalZoneless: options.experimentalZoneless,
+    zoneless: options.zoneless,
+    fileNameStyleGuide: options.fileNameStyleGuide,
   };
 
   return chain([
@@ -66,6 +66,9 @@ export default function (options: NgNewOptions): Rule {
       apply(empty(), [
         schematic('workspace', workspaceOptions),
         options.createApplication ? schematic('application', applicationOptions) : noop,
+        schematic('ai-config', {
+          tool: options.aiConfig?.length ? options.aiConfig : undefined,
+        }),
         move(options.directory),
       ]),
     ),

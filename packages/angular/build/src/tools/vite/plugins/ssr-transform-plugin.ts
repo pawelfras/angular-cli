@@ -15,28 +15,20 @@ export async function createAngularSsrTransformPlugin(workspaceRoot: string): Pr
 
   return {
     name: 'vite:angular-ssr-transform',
-    enforce: 'pre',
-    async configureServer(server) {
-      const originalssrTransform = server.ssrTransform;
+    enforce: 'post',
+    transform(code, _id, { ssr, inMap }: { ssr?: boolean; inMap?: SourceMapInput } = {}) {
+      if (!ssr || !inMap) {
+        return null;
+      }
 
-      server.ssrTransform = async (code, map, url, originalCode) => {
-        const result = await originalssrTransform(code, null, url, originalCode);
-        if (!result || !result.map || !map) {
-          return result;
-        }
+      const remappedMap = remapping([inMap], () => null);
+      // Set the sourcemap root to the workspace root. This is needed since we set a virtual path as root.
+      remappedMap.sourceRoot = normalizePath(workspaceRoot) + '/';
 
-        const remappedMap = remapping(
-          [result.map as SourceMapInput, map as SourceMapInput],
-          () => null,
-        );
-
-        // Set the sourcemap root to the workspace root. This is needed since we set a virtual path as root.
-        remappedMap.sourceRoot = normalizePath(workspaceRoot) + '/';
-
-        return {
-          ...result,
-          map: remappedMap as (typeof result)['map'],
-        };
+      return {
+        code,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        map: remappedMap as any,
       };
     },
   };

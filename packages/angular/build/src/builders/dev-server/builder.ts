@@ -18,7 +18,7 @@ import {
 import { normalizeOptions } from './options';
 import type { DevServerBuilderOutput } from './output';
 import type { Schema as DevServerBuilderOptions } from './schema';
-import { serveWithVite } from './vite-server';
+import { serveWithVite } from './vite';
 
 /**
  * A Builder that executes a development server based on the provided browser target option.
@@ -55,13 +55,6 @@ export async function* execute(
   }
 
   const { builderName, normalizedOptions } = await initialize(options, projectName, context);
-
-  // Warn if the initial options provided by the user enable prebundling but caching is disabled
-  if (options.prebundle && !normalizedOptions.cacheOptions.enabled) {
-    context.logger.warn(
-      `Prebundling has been configured but will not be used because caching has been disabled.`,
-    );
-  }
 
   yield* serveWithVite(
     normalizedOptions,

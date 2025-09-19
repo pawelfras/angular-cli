@@ -1,11 +1,13 @@
-load("@npm//@angular/build-tooling/bazel/api-golden:index.bzl", "api_golden_test_npm_package")
-load("@npm//@bazel/jasmine:index.bzl", "jasmine_node_test")
-load("//tools:defaults.bzl", "pkg_npm", "ts_library")
+load("@devinfra//bazel/api-golden:index.bzl", "api_golden_test_npm_package")
+load("@npm//:defs.bzl", "npm_link_all_packages")
+load("//tools:defaults.bzl", "copy_to_bin", "jasmine_test", "npm_package", "ts_project")
 load("//tools:ts_json_schema.bzl", "ts_json_schema")
 
 licenses(["notice"])
 
 package(default_visibility = ["//visibility:public"])
+
+npm_link_all_packages()
 
 ts_json_schema(
     name = "application_schema",
@@ -22,9 +24,40 @@ ts_json_schema(
     src = "src/builders/extract-i18n/schema.json",
 )
 
-ts_library(
+ts_json_schema(
+    name = "ng_karma_schema",
+    src = "src/builders/karma/schema.json",
+)
+
+ts_json_schema(
+    name = "ng_packagr_schema",
+    src = "src/builders/ng-packagr/schema.json",
+)
+
+ts_json_schema(
+    name = "unit_test_schema",
+    src = "src/builders/unit-test/schema.json",
+)
+
+copy_to_bin(
+    name = "schemas",
+    srcs = glob(["**/schema.json"]),
+)
+
+RUNTIME_ASSETS = glob(
+    include = [
+        "src/**/schema.json",
+        "src/**/*.js",
+        "src/**/*.mjs",
+        "src/**/*.html",
+    ],
+) + [
+    "builders.json",
+    "package.json",
+]
+
+ts_project(
     name = "build",
-    package_name = "@angular/build",
     srcs = glob(
         include = [
             "src/**/*.ts",
@@ -34,85 +67,74 @@ ts_library(
             "src/**/*_spec.ts",
             "src/**/tests/**/*.ts",
             "src/testing/**/*.ts",
-            "src/private.ts",
         ],
     ) + [
+        "index.ts",
         "//packages/angular/build:src/builders/application/schema.ts",
         "//packages/angular/build:src/builders/dev-server/schema.ts",
         "//packages/angular/build:src/builders/extract-i18n/schema.ts",
+        "//packages/angular/build:src/builders/karma/schema.ts",
+        "//packages/angular/build:src/builders/ng-packagr/schema.ts",
+        "//packages/angular/build:src/builders/unit-test/schema.ts",
     ],
-    data = glob(
-        include = [
-            "src/**/schema.json",
-            "src/**/*.js",
-            "src/**/*.mjs",
-            "src/**/*.html",
-        ],
-    ) + [
-        "builders.json",
-        "package.json",
-    ],
-    module_name = "@angular/build",
-    module_root = "src/index.d.ts",
+    data = RUNTIME_ASSETS,
     deps = [
-        "//packages/angular/ssr",
-        "//packages/angular/ssr/node",
-        "//packages/angular_devkit/architect",
-        "@npm//@ampproject/remapping",
-        "@npm//@angular/common",
-        "@npm//@angular/compiler",
-        "@npm//@angular/compiler-cli",
-        "@npm//@angular/core",
-        "@npm//@angular/localize",
-        "@npm//@angular/platform-server",
-        "@npm//@angular/service-worker",
-        "@npm//@babel/core",
-        "@npm//@babel/helper-annotate-as-pure",
-        "@npm//@babel/helper-split-export-declaration",
-        "@npm//@babel/plugin-syntax-import-attributes",
-        "@npm//@inquirer/confirm",
-        "@npm//@types/babel__core",
-        "@npm//@types/less",
-        "@npm//@types/node",
-        "@npm//@types/picomatch",
-        "@npm//@types/semver",
-        "@npm//@types/watchpack",
-        "@npm//@vitejs/plugin-basic-ssl",
-        "@npm//beasties",
-        "@npm//browserslist",
-        "@npm//esbuild",
-        "@npm//esbuild-wasm",
-        "@npm//fast-glob",
-        "@npm//https-proxy-agent",
-        "@npm//listr2",
-        "@npm//lmdb",
-        "@npm//magic-string",
-        "@npm//mrmime",
-        "@npm//parse5-html-rewriting-stream",
-        "@npm//picomatch",
-        "@npm//piscina",
-        "@npm//postcss",
-        "@npm//rollup",
-        "@npm//sass",
-        "@npm//semver",
-        "@npm//tslib",
-        "@npm//typescript",
-        "@npm//vite",
-        "@npm//watchpack",
+        ":node_modules/@ampproject/remapping",
+        ":node_modules/@angular-devkit/architect",
+        ":node_modules/@angular-devkit/core",
+        ":node_modules/@angular/ssr",
+        ":node_modules/@babel/core",
+        ":node_modules/@babel/helper-annotate-as-pure",
+        ":node_modules/@babel/helper-split-export-declaration",
+        ":node_modules/@inquirer/confirm",
+        ":node_modules/@vitejs/plugin-basic-ssl",
+        ":node_modules/beasties",
+        ":node_modules/browserslist",
+        ":node_modules/https-proxy-agent",
+        ":node_modules/istanbul-lib-instrument",
+        ":node_modules/jsonc-parser",
+        ":node_modules/less",
+        ":node_modules/listr2",
+        ":node_modules/lmdb",
+        ":node_modules/magic-string",
+        ":node_modules/mrmime",
+        ":node_modules/ng-packagr",
+        ":node_modules/parse5-html-rewriting-stream",
+        ":node_modules/picomatch",
+        ":node_modules/piscina",
+        ":node_modules/postcss",
+        ":node_modules/rolldown",
+        ":node_modules/sass",
+        ":node_modules/source-map-support",
+        ":node_modules/tinyglobby",
+        ":node_modules/vite",
+        ":node_modules/vitest",
+        ":node_modules/watchpack",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/compiler",
+        "//:node_modules/@angular/compiler-cli",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/localize",
+        "//:node_modules/@angular/platform-browser",
+        "//:node_modules/@angular/platform-server",
+        "//:node_modules/@angular/service-worker",
+        "//:node_modules/@types/babel__core",
+        "//:node_modules/@types/karma",
+        "//:node_modules/@types/less",
+        "//:node_modules/@types/node",
+        "//:node_modules/@types/picomatch",
+        "//:node_modules/@types/semver",
+        "//:node_modules/@types/watchpack",
+        "//:node_modules/esbuild",
+        "//:node_modules/esbuild-wasm",
+        "//:node_modules/karma",
+        "//:node_modules/semver",
+        "//:node_modules/tslib",
+        "//:node_modules/typescript",
     ],
 )
 
-ts_library(
-    name = "private",
-    srcs = ["src/private.ts"],
-    module_name = "@angular/build/private",
-    module_root = "src/private.d.ts",
-    deps = [
-        "//packages/angular/build",
-    ],
-)
-
-ts_library(
+ts_project(
     name = "unit_test_lib",
     testonly = True,
     srcs = glob(
@@ -121,61 +143,179 @@ ts_library(
     ),
     deps = [
         ":build",
-        ":private",
-        "//packages/angular_devkit/core",
-        "//packages/angular_devkit/core/node",
-        "@npm//@angular/compiler-cli",
-        "@npm//@babel/core",
-        "@npm//prettier",
+        ":node_modules/@angular-devkit/core",
+        ":node_modules/@babel/core",
+        "//:node_modules/@angular/compiler-cli",
+        "//:node_modules/@types/jasmine",
+        "//:node_modules/prettier",
+        "//:node_modules/typescript",
+        "//packages/angular/build/private",
     ],
 )
 
-jasmine_node_test(
-    name = "unit_tests",
-    deps = [":unit_test_lib"],
+jasmine_test(
+    name = "test",
+    data = [":unit_test_lib"],
 )
 
-ts_library(
-    name = "integration_test_lib",
+ts_project(
+    name = "application_integration_test_lib",
     testonly = True,
-    srcs = glob(include = ["src/builders/**/tests/**/*.ts"]),
+    srcs = glob(include = ["src/builders/application/tests/**/*.ts"]),
     deps = [
         ":build",
-        ":private",
+        "//packages/angular/build/private",
         "//modules/testing/builder",
-        "//packages/angular_devkit/architect",
-        "//packages/angular_devkit/architect/node",
-        "//packages/angular_devkit/architect/testing",
-        "//packages/angular_devkit/core",
-        "//packages/angular_devkit/core/node",
-
-        # dev server only test deps
-        "@npm//@types/http-proxy",
-        "@npm//http-proxy",
-        "@npm//puppeteer",
+        ":node_modules/@angular-devkit/architect",
+        ":node_modules/@angular-devkit/core",
 
         # Base dependencies for the application in hello-world-app.
-        "@npm//@angular/common",
-        "@npm//@angular/compiler",
-        "@npm//@angular/compiler-cli",
-        "@npm//@angular/core",
-        "@npm//@angular/platform-browser",
-        "@npm//@angular/platform-browser-dynamic",
-        "@npm//@angular/router",
-        "@npm//rxjs",
-        "@npm//tslib",
-        "@npm//typescript",
-        "@npm//zone.js",
-        "@npm//buffer",
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/compiler",
+        "//:node_modules/@angular/compiler-cli",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/platform-browser",
+        "//:node_modules/@angular/router",
+        ":node_modules/rxjs",
+        "//:node_modules/tslib",
+        "//:node_modules/typescript",
+        "//:node_modules/zone.js",
+        "//:node_modules/buffer",
     ],
 )
 
-jasmine_node_test(
-    name = "integration_tests",
-    size = "large",
+ts_project(
+    name = "dev-server_integration_test_lib",
+    testonly = True,
+    srcs = glob(include = ["src/builders/dev-server/tests/**/*.ts"]),
+    deps = [
+        ":build",
+        "//packages/angular/build/private",
+        "//modules/testing/builder",
+        ":node_modules/@angular-devkit/architect",
+        ":node_modules/@angular-devkit/core",
+
+        # dev server only test deps
+        "//:node_modules/@types/http-proxy",
+        "//:node_modules/@types/node",
+        "//:node_modules/http-proxy",
+        "//:node_modules/puppeteer",
+
+        # Base dependencies for the application in hello-world-app.
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/compiler",
+        "//:node_modules/@angular/compiler-cli",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/platform-browser",
+        "//:node_modules/@angular/router",
+        ":node_modules/ng-packagr",
+        ":node_modules/rxjs",
+        "//:node_modules/tslib",
+        "//:node_modules/typescript",
+        "//:node_modules/zone.js",
+        "//:node_modules/buffer",
+    ],
+)
+
+ts_project(
+    name = "karma_integration_test_lib",
+    testonly = True,
+    srcs = glob(include = ["src/builders/karma/tests/**/*.ts"]),
+    deps = [
+        ":build",
+        "//packages/angular/build/private",
+        "//modules/testing/builder",
+        ":node_modules/@angular-devkit/architect",
+        ":node_modules/@angular-devkit/core",
+        "//:node_modules/@types/node",
+
+        # karma specific test deps
+        "//:node_modules/karma-chrome-launcher",
+        "//:node_modules/karma-coverage",
+        "//:node_modules/karma-jasmine",
+        "//:node_modules/karma-jasmine-html-reporter",
+        "//:node_modules/puppeteer",
+
+        # Base dependencies for the karma in hello-world-app.
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/compiler",
+        "//:node_modules/@angular/compiler-cli",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/platform-browser",
+        "//:node_modules/@angular/router",
+        ":node_modules/rxjs",
+        "//:node_modules/tslib",
+        "//:node_modules/typescript",
+        "//:node_modules/zone.js",
+        "//:node_modules/buffer",
+    ],
+)
+
+ts_project(
+    name = "unit-test_integration_test_lib",
+    testonly = True,
+    srcs = glob(include = ["src/builders/unit-test/tests/**/*.ts"]),
+    deps = [
+        ":build",
+        "//packages/angular/build/private",
+        "//modules/testing/builder",
+        ":node_modules/@angular-devkit/architect",
+        ":node_modules/@angular-devkit/core",
+        "//:node_modules/@types/node",
+
+        # unit test specific test deps
+        ":node_modules/vitest",
+        ":node_modules/jsdom",
+
+        # Base dependencies for the hello-world-app.
+        "//:node_modules/@angular/common",
+        "//:node_modules/@angular/compiler",
+        "//:node_modules/@angular/compiler-cli",
+        "//:node_modules/@angular/core",
+        "//:node_modules/@angular/platform-browser",
+        "//:node_modules/@angular/router",
+        ":node_modules/rxjs",
+        "//:node_modules/tslib",
+        "//:node_modules/typescript",
+        "//:node_modules/zone.js",
+    ],
+)
+
+jasmine_test(
+    name = "application_integration_tests",
+    size = "medium",
+    data = [":application_integration_test_lib"],
+    flaky = True,
+    shard_count = 25,
+)
+
+jasmine_test(
+    name = "dev-server_integration_tests",
+    size = "medium",
+    data = [":dev-server_integration_test_lib"],
     flaky = True,
     shard_count = 10,
-    deps = [":integration_test_lib"],
+)
+
+jasmine_test(
+    name = "karma_integration_tests",
+    size = "medium",
+    data = [":karma_integration_test_lib"],
+    env = {
+        # TODO: Replace Puppeteer downloaded browsers with Bazel-managed browsers,
+        # or standardize to avoid complex configuration like this!
+        "PUPPETEER_DOWNLOAD_PATH": "../../../node_modules/puppeteer/downloads",
+    },
+    flaky = True,
+    shard_count = 10,
+)
+
+jasmine_test(
+    name = "unit-test_integration_tests",
+    size = "medium",
+    data = [":unit-test_integration_test_lib"],
+    flaky = True,
+    shard_count = 5,
 )
 
 genrule(
@@ -185,17 +325,23 @@ genrule(
     cmd = "cp $(execpath //:LICENSE) $@",
 )
 
-pkg_npm(
-    name = "npm_package",
+npm_package(
+    name = "pkg",
     pkg_deps = [
         "//packages/angular_devkit/architect:package.json",
     ],
+    stamp_files = [
+        "src/utils/version.js",
+        "src/tools/esbuild/utils.js",
+        "src/utils/normalize-cache.js",
+        "src/utils/supported-browsers.js",
+    ],
     tags = ["release-package"],
-    deps = [
+    deps = RUNTIME_ASSETS + [
         ":README.md",
         ":build",
         ":license",
-        ":private",
+        "//packages/angular/build/private",
     ],
 )
 
@@ -205,6 +351,6 @@ api_golden_test_npm_package(
         ":npm_package",
         "//goldens:public-api",
     ],
-    golden_dir = "angular_cli/goldens/public-api/angular/build",
-    npm_package = "angular_cli/packages/angular/build/npm_package",
+    golden_dir = "goldens/public-api/angular/build",
+    npm_package = "packages/angular/build/npm_package",
 )

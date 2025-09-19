@@ -7,10 +7,10 @@
  */
 
 import { Architect } from '@angular-devkit/architect';
-import { BrowserBuilderOutput } from '@angular-devkit/build-angular';
 import { logging } from '@angular-devkit/core';
 import { debounceTime, take, tap } from 'rxjs';
 import { createArchitect, host } from '../../../testing/test-utils';
+import { BrowserBuilderOutput } from '../index';
 
 describe('Browser Builder unused files warnings', () => {
   const warningMessageSuffix = `is part of the TypeScript compilation but it's unused`;
@@ -238,7 +238,7 @@ describe('Browser Builder unused files warnings', () => {
               host.appendToFile('src/main.ts', '');
               break;
             case 2:
-              // The second should should have type.ts as unused but shouldn't warn.
+              // The second should have type.ts as unused but shouldn't warn.
               expect(logs.join().includes(warningMessageSuffix)).toBe(
                 false,
                 `Case ${buildNumber} failed.`,

@@ -1,5 +1,6 @@
-import { homedir } from 'os';
-import * as path from 'path';
+import assert from 'node:assert/strict';
+import { homedir } from 'node:os';
+import * as path from 'node:path';
 import { deleteFile, expectFileToExist } from '../../../utils/fs';
 import { ng } from '../../../utils/process';
 import { expectToFail } from '../../../utils/utils';
@@ -15,9 +16,7 @@ export default async function () {
     '--global',
     'schematics.@schematics/angular.component.inlineStyle',
   );
-  if (!output.stdout.match(/false\n?/)) {
-    throw new Error(`Expected "false", received "${JSON.stringify(output.stdout)}".`);
-  }
+  assert.match(output.stdout, /false\n?/);
 
   // This test requires schema querying capabilities
   // .then(() => expectToFail(() => {
@@ -33,9 +32,7 @@ export default async function () {
   }
 
   output = await ng('config', '--global', 'schematics.@schematics/angular.component.inlineStyle');
-  if (!output.stdout.match(/true\n?/)) {
-    throw new Error(`Expected "true", received "${JSON.stringify(output.stdout)}".`);
-  }
+  assert.match(output.stdout, /true\n?/);
 
   await expectToFail(() => ng('config', '--global', 'cli.warnings.notreal', 'true'));
 

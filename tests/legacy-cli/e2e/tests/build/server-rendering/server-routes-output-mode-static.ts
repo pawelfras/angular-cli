@@ -21,7 +21,7 @@ export default async function () {
 
   // Forcibly remove in case another test doesn't clean itself up.
   await uninstallPackage('@angular/ssr');
-  await ng('add', '@angular/ssr', '--server-routing', '--skip-confirmation', '--skip-install');
+  await ng('add', '@angular/ssr', '--skip-confirmation', '--skip-install');
   await useSha();
   await installWorkspacePackages();
 
@@ -30,18 +30,18 @@ export default async function () {
     'src/app/app.routes.ts',
     `
   import { Routes } from '@angular/router';
-  import { HomeComponent } from './home/home.component';
-  import { SsgComponent } from './ssg/ssg.component';
-  import { SsgWithParamsComponent } from './ssg-with-params/ssg-with-params.component';
+  import { Home } from './home/home';
+  import { Ssg } from './ssg/ssg';
+  import { SsgWithParams } from './ssg-with-params/ssg-with-params';
 
   export const routes: Routes = [
     {
       path: '',
-      component: HomeComponent,
+      component: Home,
     },
     {
       path: 'ssg',
-      component: SsgComponent,
+      component: Ssg,
     },
     {
       path: 'ssg-redirect',
@@ -49,11 +49,11 @@ export default async function () {
     },
     {
       path: 'ssg/:id',
-      component: SsgWithParamsComponent,
+      component: SsgWithParams,
     },
     {
       path: '**',
-      component: HomeComponent,
+      component: Home,
     },
   ];
   `,
@@ -101,11 +101,11 @@ export default async function () {
   await replaceInFile('src/app/app.routes.server.ts', 'RenderMode.Server', 'RenderMode.Prerender');
   await noSilentNg('build', '--output-mode=static');
 
-  const expects: Record<string, string> = {
-    'index.html': 'home works!',
-    'ssg/index.html': 'ssg works!',
-    'ssg/one/index.html': 'ssg-with-params works!',
-    'ssg/two/index.html': 'ssg-with-params works!',
+  const expects: Record<string, RegExp | string> = {
+    'index.html': /ng-server-context="ssg".+home works!/,
+    'ssg/index.html': /ng-server-context="ssg".+ssg works!/,
+    'ssg/one/index.html': /ng-server-context="ssg".+ssg-with-params works!/,
+    'ssg/two/index.html': /ng-server-context="ssg".+ssg-with-params works!/,
     // When static redirects as generated as meta tags.
     'ssg-redirect/index.html': '<meta http-equiv="refresh" content="0; url=/ssg">',
   };

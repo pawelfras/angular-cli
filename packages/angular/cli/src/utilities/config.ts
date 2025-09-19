@@ -7,9 +7,9 @@
  */
 
 import { json, workspaces } from '@angular-devkit/core';
-import { existsSync, promises as fs } from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { existsSync, promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { PackageManager } from '../../lib/config/workspace-schema';
 import { findUp } from './find-up';
 import { JSONFile, readAndParseJson } from './json-file';
@@ -242,12 +242,15 @@ export async function getWorkspaceRaw(
 
 export async function validateWorkspace(data: json.JsonObject, isGlobal: boolean): Promise<void> {
   const schema = readAndParseJson(workspaceSchemaPath);
+  if (!isJsonObject(schema)) {
+    throw new Error('Workspace schema is not a JSON object.');
+  }
 
   // We should eventually have a dedicated global config schema and use that to validate.
   const schemaToValidate: json.schema.JsonSchema = isGlobal
     ? {
         '$ref': '#/definitions/global',
-        definitions: schema['definitions'],
+        definitions: schema['definitions'] as json.JsonObject,
       }
     : schema;
 

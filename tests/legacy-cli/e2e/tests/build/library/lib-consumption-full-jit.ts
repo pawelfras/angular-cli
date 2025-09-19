@@ -15,6 +15,7 @@ export default async function () {
   await updateJsonFile('angular.json', (config) => {
     const build = config.projects['test-project'].architect.build;
     build.options.aot = false;
+    build.configurations.production.budgets = undefined;
     if (!getGlobalVariable('argv')['esbuild']) {
       build.configurations.production.buildOptimizer = false;
     }
@@ -29,6 +30,6 @@ export default async function () {
   await ng('build', '--configuration=development');
   await expectFileToMatch(
     'dist/test-project/browser/main.js.map',
-    'projects/my-lib/src/lib/my-lib.component.ts',
+    'projects/my-lib/src/lib/my-lib.ts',
   );
 }

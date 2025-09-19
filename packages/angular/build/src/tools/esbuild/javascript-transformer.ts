@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { IMPORT_EXEC_ARGV } from '../../utils/server-rendering/esm-in-memory-loader/utils';
-import { WorkerPool } from '../../utils/worker-pool';
+import { WorkerPool, WorkerPoolOptions } from '../../utils/worker-pool';
 import { Cache } from './cache';
 
 /**
@@ -56,12 +56,22 @@ export class JavaScriptTransformer {
   }
 
   #ensureWorkerPool(): WorkerPool {
-    this.#workerPool ??= new WorkerPool({
+    if (this.#workerPool) {
+      return this.#workerPool;
+    }
+
+    const workerPoolOptions: WorkerPoolOptions = {
       filename: require.resolve('./javascript-transformer-worker'),
       maxThreads: this.maxThreads,
-      // Prevent passing `--import` (loader-hooks) from parent to child worker.
-      execArgv: process.execArgv.filter((v) => v !== IMPORT_EXEC_ARGV),
-    });
+    };
+
+    // Prevent passing SSR `--import` (loader-hooks) from parent to child worker.
+    const filteredExecArgv = process.execArgv.filter((v) => v !== IMPORT_EXEC_ARGV);
+    if (process.execArgv.length !== filteredExecArgv.length) {
+      workerPoolOptions.execArgv = filteredExecArgv;
+    }
+
+    this.#workerPool = new WorkerPool(workerPoolOptions);
 
     return this.#workerPool;
   }
@@ -115,7 +125,7 @@ export class JavaScriptTransformer {
         {
           // The below is disable as with Yarn PNP this causes build failures with the below message
           // `Unable to deserialize cloned data`.
-          transferList: process.versions.pnp ? undefined : [data.buffer],
+          transferList: process.versions.pnp ? undefined : [data.buffer as ArrayBuffer],
         },
       )) as Uint8Array;
 

@@ -1,4 +1,4 @@
-load("//tools:defaults.bzl", "ts_library")
+load("//tools:defaults.bzl", "ts_project")
 
 # Copyright Google Inc. All Rights Reserved.
 #
@@ -8,7 +8,7 @@ licenses(["notice"])
 
 package(default_visibility = ["//visibility:public"])
 
-ts_library(
+ts_project(
     name = "tasks",
     srcs = glob(
         include = ["**/*.ts"],
@@ -18,15 +18,11 @@ ts_library(
         ],
     ),
     data = ["package.json"],
-    module_name = "@angular-devkit/schematics/tasks",
-    module_root = "index.d.ts",
     deps = [
-        "//packages/angular_devkit/core",
-        "//packages/angular_devkit/core/node",
+        "//:node_modules/@types/node",
         "//packages/angular_devkit/schematics",
-        "@npm//@types/node",
-        "@npm//ora",
-        "@npm//rxjs",
-        "@npm//typescript",
+        "//packages/angular_devkit/schematics:node_modules/@angular-devkit/core",
+        "//packages/angular_devkit/schematics:node_modules/ora",
+        "//packages/angular_devkit/schematics:node_modules/rxjs",
     ],
 )

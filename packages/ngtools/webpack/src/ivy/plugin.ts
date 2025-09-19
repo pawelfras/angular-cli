@@ -7,7 +7,7 @@
  */
 
 import type { CompilerHost, CompilerOptions, NgtscProgram } from '@angular/compiler-cli';
-import { strict as assert } from 'assert';
+import { strict as assert } from 'node:assert';
 import * as ts from 'typescript';
 import type { Compilation, Compiler, Module, NormalModule } from 'webpack';
 import { TypeScriptPathsPlugin } from '../paths-plugin';
@@ -39,7 +39,7 @@ import { createAotTransformers, createJitTransformers, mergeTransformers } from 
  */
 const DIAGNOSTICS_AFFECTED_THRESHOLD = 1;
 
-export const imageDomains = new Set<string>();
+export const imageDomains: Set<string> = new Set();
 
 export interface AngularWebpackPluginOptions {
   tsconfig: string;
@@ -410,6 +410,7 @@ export class AngularWebpackPlugin {
       this.pluginOptions.tsconfig,
       this.pluginOptions.compilerOptions,
     );
+    compilerOptions.composite = false;
     compilerOptions.noEmitOnError = false;
     compilerOptions.suppressOutputPathCheck = true;
     compilerOptions.outDir = undefined;

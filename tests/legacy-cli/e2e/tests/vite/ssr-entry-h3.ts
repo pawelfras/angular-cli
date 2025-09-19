@@ -14,20 +14,20 @@ export default async function () {
 
   // Forcibly remove in case another test doesn't clean itself up.
   await uninstallPackage('@angular/ssr');
-  await ng('add', '@angular/ssr', '--server-routing', '--skip-confirmation', '--skip-install');
+  await ng('add', '@angular/ssr', '--skip-confirmation', '--skip-install');
   await useSha();
   await installWorkspacePackages();
   await installPackage('h3@1');
 
   await writeMultipleFiles({
-    // Replace the template of app.component.html as it makes it harder to debug
-    'src/app/app.component.html': '<router-outlet />',
+    // Replace the template of app.ng.html as it makes it harder to debug
+    'src/app/app.html': '<router-outlet />',
     'src/app/app.routes.ts': `
       import { Routes } from '@angular/router';
-      import { HomeComponent } from './home/home.component';
+      import { Home } from './home/home';
 
       export const routes: Routes = [
-        { path: 'home', component: HomeComponent }
+        { path: 'home', component: Home }
       ];
     `,
     'src/app/app.routes.server.ts': `
@@ -78,9 +78,10 @@ export default async function () {
 
   // Modify the home component and validate the change.
   await modifyFileAndWaitUntilUpdated(
-    'src/app/home/home.component.html',
+    'src/app/home/home.html',
     'home works',
     'yay home works!!!',
+    true,
   );
   await validateResponse('/api/test', /foo/);
   await validateResponse('/home', /yay home works/);
@@ -102,9 +103,12 @@ async function modifyFileAndWaitUntilUpdated(
   filePath: string,
   searchValue: string,
   replaceValue: string,
+  hmr = false,
 ): Promise<void> {
   await Promise.all([
-    waitForAnyProcessOutputToMatch(/Page reload sent to client/),
+    waitForAnyProcessOutputToMatch(
+      hmr ? /Component update sent to client/ : /Page reload sent to client/,
+    ),
     setTimeout(100).then(() => replaceInFile(filePath, searchValue, replaceValue)),
   ]);
 }

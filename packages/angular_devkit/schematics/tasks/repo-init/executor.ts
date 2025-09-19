@@ -7,8 +7,8 @@
  */
 
 import { tags } from '@angular-devkit/core';
-import { SpawnOptions, spawn } from 'child_process';
-import * as path from 'path';
+import { SpawnOptions, spawn } from 'node:child_process';
+import * as path from 'node:path';
 import { SchematicContext, TaskExecutor } from '../../src';
 import {
   RepositoryInitializerTaskFactoryOptions,
@@ -41,7 +41,7 @@ export default function (
       };
 
       return new Promise<void>((resolve, reject) => {
-        spawn('git', args, spawnOptions).on('close', (code: number) => {
+        spawn(`git ${args.join(' ')}`, spawnOptions).on('close', (code: number) => {
           if (code === 0) {
             resolve();
           } else {

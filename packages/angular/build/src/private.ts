@@ -13,11 +13,19 @@
  * their existence may change in any future version.
  */
 
+import { NoopCompilation, createAngularCompilation } from './tools/angular/compilation';
+import {
+  CompilerPluginOptions,
+  createCompilerPlugin as internalCreateCompilerPlugin,
+} from './tools/esbuild/angular/compiler-plugin';
+import { ComponentStylesheetBundler } from './tools/esbuild/angular/component-stylesheets';
+import { BundleStylesheetOptions } from './tools/esbuild/stylesheets/bundle-options';
+
 // Builders
 export { buildApplicationInternal } from './builders/application';
 export type { ApplicationBuilderInternalOptions } from './builders/application/options';
 export { type Result, type ResultFile, ResultKind } from './builders/application/results';
-export { serveWithVite } from './builders/dev-server/vite-server';
+export { serveWithVite } from './builders/dev-server/vite';
 
 // Tools
 export * from './tools/babel/plugins';
@@ -29,7 +37,30 @@ export { SassWorkerImplementation } from './tools/sass/sass-service';
 export { SourceFileCache } from './tools/esbuild/angular/source-file-cache';
 export { createJitResourceTransformer } from './tools/angular/transformers/jit-resource-transformer';
 export { JavaScriptTransformer } from './tools/esbuild/javascript-transformer';
-export { createCompilerPlugin } from './tools/esbuild/angular/compiler-plugin';
+
+export function createCompilerPlugin(
+  pluginOptions: CompilerPluginOptions & {
+    browserOnlyBuild?: boolean;
+    noopTypeScriptCompilation?: boolean;
+  },
+  styleOptions: BundleStylesheetOptions & { inlineStyleLanguage: string },
+): import('esbuild').Plugin {
+  return internalCreateCompilerPlugin(
+    pluginOptions,
+    pluginOptions.noopTypeScriptCompilation
+      ? new NoopCompilation()
+      : () => createAngularCompilation(!!pluginOptions.jit, !!pluginOptions.browserOnlyBuild),
+    new ComponentStylesheetBundler(
+      styleOptions,
+      styleOptions.inlineStyleLanguage,
+      pluginOptions.incremental,
+    ),
+  );
+}
+
+export type { AngularCompilation } from './tools/angular/compilation';
+export { createAngularCompilation };
+export { ComponentStylesheetBundler } from './tools/esbuild/angular/component-stylesheets';
 
 // Utilities
 export * from './utils/bundle-calculator';
@@ -55,3 +86,9 @@ export { augmentAppWithServiceWorker } from './utils/service-worker';
 export { type BundleStats, generateBuildStatsTable } from './utils/stats-table';
 export { getSupportedBrowsers } from './utils/supported-browsers';
 export { assertCompatibleAngularVersion } from './utils/version';
+export { findTests, getTestEntrypoints } from './builders/karma/find-tests';
+export {
+  findTailwindConfiguration,
+  generateSearchDirectories,
+  loadPostcssConfiguration,
+} from './utils/postcss-configuration';

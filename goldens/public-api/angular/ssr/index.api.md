@@ -4,7 +4,10 @@
 
 ```ts
 
+import { DefaultExport } from '@angular/router';
 import { EnvironmentProviders } from '@angular/core';
+import { Provider } from '@angular/core';
+import { Type } from '@angular/core';
 
 // @public
 export class AngularAppEngine {
@@ -24,7 +27,7 @@ export enum PrerenderFallback {
 }
 
 // @public
-export function provideServerRoutesConfig(routes: ServerRoute[], options?: ServerRoutesConfigOptions): EnvironmentProviders;
+export function provideServerRendering(...features: ServerRenderingFeature<ServerRenderingFeatureKind>[]): EnvironmentProviders;
 
 // @public
 export enum RenderMode {
@@ -64,14 +67,15 @@ export interface ServerRoutePrerenderWithParams extends Omit<ServerRoutePrerende
 }
 
 // @public
-export interface ServerRoutesConfigOptions {
-    appShellRoute?: string;
-}
-
-// @public
 export interface ServerRouteServer extends ServerRouteCommon {
     renderMode: RenderMode.Server;
 }
+
+// @public
+export function withAppShell(component: Type<unknown> | (() => Promise<Type<unknown> | DefaultExport<Type<unknown>>>)): ServerRenderingFeature<ServerRenderingFeatureKind.AppShell>;
+
+// @public
+export function withRoutes(routes: ServerRoute[]): ServerRenderingFeature<ServerRenderingFeatureKind.ServerRoutes>;
 
 // (No @packageDocumentation comment for this package)
 

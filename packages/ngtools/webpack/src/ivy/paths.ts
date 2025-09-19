@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import * as nodePath from 'path';
+import * as nodePath from 'node:path';
 
 const normalizationCache = new Map<string, string>();
 
@@ -34,7 +34,7 @@ function externalizeForWindows(path: string): string {
   return result;
 }
 
-export const externalizePath = (() => {
+export const externalizePath: typeof externalizeForWindows = (() => {
   if (process.platform !== 'win32') {
     return (path: string) => path;
   }

@@ -1,21 +1,23 @@
-load("//tools:defaults.bzl", "ts_library")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
 
-# files fetched on 2024-09-10 from
-# https://github.com/microsoft/TypeScript/releases/tag/v5.6.2
+# files fetched on 2025-08-01
 
-# Commands to download:
-# curl https://raw.githubusercontent.com/microsoft/TypeScript/v5.6.2/lib/typescript.d.ts -o packages/schematics/angular/third_party/github.com/Microsoft/TypeScript/lib/typescript.d.ts
-# curl https://raw.githubusercontent.com/microsoft/TypeScript/v5.6.2/lib/typescript.js -o packages/schematics/angular/third_party/github.com/Microsoft/TypeScript/lib/typescript.js
+# Commands to update from node_modules:
+# cp node_modules/typescript/lib/typescript.d.ts packages/schematics/angular/third_party/github.com/Microsoft/TypeScript/lib/typescript.d.ts
+# cp node_modules/typescript/lib/typescript.js packages/schematics/angular/third_party/github.com/Microsoft/TypeScript/lib/typescript.js
 
 licenses(["notice"])  # Apache 2.0
+
+package(default_visibility = ["//packages/schematics/angular:__subpackages__"])
 
 exports_files([
     "LICENSE",
 ])
 
-ts_library(
+js_library(
     name = "TypeScript",
-    srcs = ["lib/typescript.d.ts"],
-    data = ["lib/typescript.js"],
-    visibility = ["//packages/schematics/angular:__subpackages__"],
+    srcs = [
+        "lib/typescript.d.ts",
+        "lib/typescript.js",
+    ],
 )

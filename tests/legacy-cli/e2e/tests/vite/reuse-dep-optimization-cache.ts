@@ -12,32 +12,30 @@ export default async function () {
   await ng('cache', 'on');
 
   const port = await findFreePort();
-
-  // Make sure serve is consistent with build
-  await execAndWaitForOutputToMatch(
+  const serveReady = execAndWaitForOutputToMatch(
     'ng',
     ['serve', '--port', `${port}`],
-    /Dependencies bundled/,
+    /Application bundle generation complete/,
     // Use CI:0 to force caching
-    { DEBUG: 'vite:deps', CI: '0' },
+    { ...process.env, DEBUG: 'vite:deps', CI: '0', NO_COLOR: 'true' },
   );
 
-  // Make request so that vite writes the cache.
+  // Note: Don't await `serveReady` before, as otherwise we might not see
+  // the dependencies optimized output. There is some debouncing for `ng serve`
+  // going on that could cause this.
+  await Promise.all([serveReady, waitForAnyProcessOutputToMatch(/dependencies optimized/, 10_000)]);
   const response = await fetch(`http://localhost:${port}/main.js`);
-  assert(response.ok, `Expected 'response.ok' to be 'true'.`);
 
-  // Wait for vite to write to FS and stablize.
-  await waitForAnyProcessOutputToMatch(/dependencies optimized/, 5000);
+  assert(response.ok, `Expected 'response.ok' to be 'true'.`);
 
   // Terminate the dev-server
   await killAllProcesses();
 
-  // The Node.js specific module should not be found
   await execAndWaitForOutputToMatch(
     'ng',
     ['serve', '--port=0'],
     /Hash is consistent\. Skipping/,
     // Use CI:0 to force caching
-    { DEBUG: 'vite:deps', CI: '0' },
+    { ...process.env, DEBUG: 'vite:deps', CI: '0', NO_COLOR: 'true' },
   );
 }

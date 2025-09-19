@@ -41,15 +41,13 @@ export type PathFragment = Path & {
 
 /**
  * The Separator for normalized path.
- * @type {Path}
  */
-export const NormalizedSep = '/' as Path;
+export const NormalizedSep: Path = '/' as Path;
 
 /**
  * The root of a normalized path.
- * @type {Path}
  */
-export const NormalizedRoot = NormalizedSep;
+export const NormalizedRoot: Path = NormalizedSep;
 
 /**
  * Split a path into multiple path fragments. Each fragments except the last one will end with
@@ -120,7 +118,7 @@ export function join(p1: Path, ...others: string[]): Path {
 /**
  * Returns true if a path is absolute.
  */
-export function isAbsolute(p: Path) {
+export function isAbsolute(p: Path): boolean {
   return p.startsWith(NormalizedSep);
 }
 
@@ -166,7 +164,7 @@ export function relative(from: Path, to: Path): Path {
  * Returns a Path that is the resolution of p2, from p1. If p2 is absolute, it will return p2,
  * otherwise will join both p1 and p2.
  */
-export function resolve(p1: Path, p2: Path) {
+export function resolve(p1: Path, p2: Path): Path {
   if (isAbsolute(p2)) {
     return p2;
   } else {
@@ -192,7 +190,7 @@ let normalizedCache = new Map<string, Path>();
  * Reset the cache. This is only useful for testing.
  * @private
  */
-export function resetNormalizeCache() {
+export function resetNormalizeCache(): void {
   normalizedCache = new Map<string, Path>();
 }
 
@@ -233,7 +231,7 @@ export function noCacheNormalize(path: string): Path {
   // Match absolute windows path.
   const original = path;
   if (path.match(/^[A-Z]:[/\\]/i)) {
-    path = '\\' + path[0] + '\\' + path.slice(3);
+    path = '\\' + path[0].toUpperCase() + '\\' + path.slice(3);
   }
 
   // We convert Windows paths as well here.

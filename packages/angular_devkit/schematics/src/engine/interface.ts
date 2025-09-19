@@ -7,8 +7,8 @@
  */
 
 import { logging } from '@angular-devkit/core';
+import { Url } from 'node:url';
 import { Observable } from 'rxjs';
-import { Url } from 'url';
 import { FileEntry, MergeStrategy, Tree } from '../tree/interface';
 import { Workflow } from '../workflow/interface';
 
@@ -236,4 +236,4 @@ export type Source = (context: SchematicContext) => Tree | Observable<Tree>;
 export type Rule = (
   tree: Tree,
   context: SchematicContext,
-) => Tree | Observable<Tree> | Rule | Promise<void | Rule> | void;
+) => Tree | Observable<Tree> | Rule | Promise<void | Tree | Rule> | void;

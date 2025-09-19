@@ -16,12 +16,14 @@
     "./*.js": "./*.js"
   },
   "dependencies": {
-    "@angular-devkit/architect": "0.0.0-EXPERIMENTAL-PLACEHOLDER",
-    "rxjs": "7.8.1"
+    "@angular-devkit/architect": "workspace:0.0.0-EXPERIMENTAL-PLACEHOLDER",
+    "rxjs": "7.8.2"
   },
   "devDependencies": {
-    "@angular-devkit/core": "0.0.0-PLACEHOLDER",
-    "webpack": "5.96.1"
+    "@angular-devkit/core": "workspace:0.0.0-PLACEHOLDER",
+    "@ngtools/webpack": "workspace:0.0.0-PLACEHOLDER",
+    "webpack": "5.101.3",
+    "webpack-dev-server": "5.2.2"
   },
   "peerDependencies": {
     "webpack": "^5.30.0",

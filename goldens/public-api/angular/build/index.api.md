@@ -6,6 +6,7 @@
 
 import { BuilderContext } from '@angular-devkit/architect';
 import { BuilderOutput } from '@angular-devkit/architect';
+import type { ConfigOptions } from 'karma';
 import type http from 'node:http';
 import { OutputFile } from 'esbuild';
 import type { Plugin as Plugin_2 } from 'esbuild';
@@ -19,15 +20,16 @@ export interface ApplicationBuilderExtensions {
 }
 
 // @public
-export interface ApplicationBuilderOptions {
+export type ApplicationBuilderOptions = {
     allowedCommonJsDependencies?: string[];
     aot?: boolean;
     appShell?: boolean;
     assets?: AssetPattern[];
     baseHref?: string;
-    browser: string;
+    browser?: string;
     budgets?: Budget[];
     clearScreen?: boolean;
+    conditions?: string[];
     crossOrigin?: CrossOrigin;
     define?: {
         [key: string]: string;
@@ -39,7 +41,7 @@ export interface ApplicationBuilderOptions {
     fileReplacements?: FileReplacement[];
     i18nDuplicateTranslation?: I18NTranslation;
     i18nMissingTranslation?: I18NTranslation;
-    index: IndexUnion;
+    index?: IndexUnion;
     inlineStyleLanguage?: InlineStyleLanguage;
     loader?: {
         [key: string]: any;
@@ -49,7 +51,7 @@ export interface ApplicationBuilderOptions {
     optimization?: OptimizationUnion;
     outputHashing?: OutputHashing;
     outputMode?: OutputMode;
-    outputPath: OutputPathUnion;
+    outputPath?: OutputPathUnion;
     poll?: number;
     polyfills?: string[];
     prerender?: PrerenderUnion;
@@ -57,8 +59,8 @@ export interface ApplicationBuilderOptions {
     progress?: boolean;
     scripts?: ScriptElement[];
     security?: Security;
-    server?: string;
-    serviceWorker?: ServiceWorker_2;
+    server?: Serv;
+    serviceWorker?: Serv;
     sourceMap?: SourceMapUnion;
     ssr?: SsrUnion;
     statsJson?: boolean;
@@ -69,21 +71,10 @@ export interface ApplicationBuilderOptions {
     verbose?: boolean;
     watch?: boolean;
     webWorkerTsConfig?: string;
-}
-
-// @public (undocumented)
-export interface ApplicationBuilderOutput extends BuilderOutput {
-    // (undocumented)
-    assetFiles?: {
-        source: string;
-        destination: string;
-    }[];
-    // (undocumented)
-    outputFiles?: BuildOutputFile[];
-}
+};
 
 // @public
-export function buildApplication(options: ApplicationBuilderOptions, context: BuilderContext, extensions?: ApplicationBuilderExtensions): AsyncIterable<ApplicationBuilderOutput>;
+export function buildApplication(options: ApplicationBuilderOptions, context: BuilderContext, extensions?: ApplicationBuilderExtensions): AsyncIterable<BuilderOutput>;
 
 // @public (undocumented)
 export interface BuildOutputAsset {
@@ -118,7 +109,8 @@ export enum BuildOutputFileType {
 }
 
 // @public
-export interface DevServerBuilderOptions {
+export type DevServerBuilderOptions = {
+    allowedHosts?: AllowedHosts;
     buildTarget: string;
     headers?: {
         [key: string]: string;
@@ -138,7 +130,7 @@ export interface DevServerBuilderOptions {
     sslKey?: string;
     verbose?: boolean;
     watch?: boolean;
-}
+};
 
 // @public
 export interface DevServerBuilderOutput extends BuilderOutput {
@@ -161,13 +153,88 @@ export function executeDevServerBuilder(options: DevServerBuilderOptions, contex
 export function executeExtractI18nBuilder(options: ExtractI18nBuilderOptions, context: BuilderContext, extensions?: ApplicationBuilderExtensions): Promise<BuilderOutput>;
 
 // @public
-export interface ExtractI18nBuilderOptions {
+export function executeKarmaBuilder(options: KarmaBuilderOptions, context: BuilderContext, transforms?: KarmaBuilderTransformsOptions): AsyncIterable<BuilderOutput>;
+
+// @public
+export function executeNgPackagrBuilder(options: NgPackagrBuilderOptions, context: BuilderContext): AsyncIterableIterator<BuilderOutput>;
+
+// @public
+export function executeUnitTestBuilder(options: UnitTestBuilderOptions, context: BuilderContext, extensions?: ApplicationBuilderExtensions): AsyncIterable<BuilderOutput>;
+
+// @public
+export type ExtractI18nBuilderOptions = {
     buildTarget?: string;
     format?: Format;
+    i18nDuplicateTranslation?: I18NDuplicateTranslation;
     outFile?: string;
     outputPath?: string;
     progress?: boolean;
-}
+};
+
+// @public
+export type KarmaBuilderOptions = {
+    aot?: boolean;
+    assets?: AssetPattern_2[];
+    browsers?: Browsers;
+    codeCoverage?: boolean;
+    codeCoverageExclude?: string[];
+    define?: {
+        [key: string]: string;
+    };
+    exclude?: string[];
+    externalDependencies?: string[];
+    fileReplacements?: FileReplacement_2[];
+    include?: string[];
+    inlineStyleLanguage?: InlineStyleLanguage_2;
+    karmaConfig?: string;
+    loader?: {
+        [key: string]: any;
+    };
+    main?: string;
+    poll?: number;
+    polyfills?: string[];
+    preserveSymlinks?: boolean;
+    progress?: boolean;
+    reporters?: string[];
+    scripts?: ScriptElement_2[];
+    sourceMap?: SourceMapUnion_2;
+    stylePreprocessorOptions?: StylePreprocessorOptions_2;
+    styles?: StyleElement_2[];
+    tsConfig: string;
+    watch?: boolean;
+    webWorkerTsConfig?: string;
+};
+
+// @public
+export type NgPackagrBuilderOptions = {
+    poll?: number;
+    project?: string;
+    tsConfig?: string;
+    watch?: boolean;
+};
+
+// @public
+export type UnitTestBuilderOptions = {
+    browsers?: string[];
+    buildTarget: string;
+    codeCoverage?: boolean;
+    codeCoverageExclude?: string[];
+    codeCoverageReporters?: SchemaCodeCoverageReporter[];
+    debug?: boolean;
+    dumpVirtualFiles?: boolean;
+    exclude?: string[];
+    filter?: string;
+    include?: string[];
+    listTests?: boolean;
+    outputFile?: string;
+    progress?: boolean;
+    providersFile?: string;
+    reporters?: SchemaReporter[];
+    runner: Runner;
+    setupFiles?: string[];
+    tsConfig: string;
+    watch?: boolean;
+};
 
 // (No @packageDocumentation comment for this package)
 

@@ -6,53 +6,29 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import {
-  Rule,
-  Tree,
-  apply,
-  applyTemplates,
-  chain,
-  filter,
-  mergeWith,
-  move,
-  noop,
-  strings,
-  url,
-} from '@angular-devkit/schematics';
+import { chain, strings } from '@angular-devkit/schematics';
 import { addDeclarationToNgModule } from '../utility/add-declaration-to-ng-module';
 import { findModuleFromOptions } from '../utility/find-module';
+import { generateFromFiles } from '../utility/generate-from-files';
 import { parseName } from '../utility/parse-name';
+import { createProjectSchematic } from '../utility/project';
 import { validateClassName } from '../utility/validation';
 import { createDefaultPath } from '../utility/workspace';
 import { Schema as PipeOptions } from './schema';
 
-export default function (options: PipeOptions): Rule {
-  return async (host: Tree) => {
-    options.path ??= await createDefaultPath(host, options.project);
-    options.module = findModuleFromOptions(host, options);
+export default createProjectSchematic<PipeOptions>(async (options, { tree }) => {
+  options.path ??= await createDefaultPath(tree, options.project);
+  options.module = findModuleFromOptions(tree, options);
+  const parsedPath = parseName(options.path, options.name);
+  options.name = parsedPath.name;
+  options.path = parsedPath.path;
+  validateClassName(strings.classify(options.name));
 
-    const parsedPath = parseName(options.path, options.name);
-    options.name = parsedPath.name;
-    options.path = parsedPath.path;
-    validateClassName(strings.classify(options.name));
-
-    const templateSource = apply(url('./files'), [
-      options.skipTests ? filter((path) => !path.endsWith('.spec.ts.template')) : noop(),
-      applyTemplates({
-        ...strings,
-        'if-flat': (s: string) => (options.flat ? '' : s),
-        ...options,
-      }),
-      move(parsedPath.path),
-    ]);
-
-    return chain([
-      addDeclarationToNgModule({
-        type: 'pipe',
-
-        ...options,
-      }),
-      mergeWith(templateSource),
-    ]);
-  };
-}
+  return chain([
+    addDeclarationToNgModule({
+      type: 'pipe',
+      ...options,
+    }),
+    generateFromFiles(options),
+  ]);
+});

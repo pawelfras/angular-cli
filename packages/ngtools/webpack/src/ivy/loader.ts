@@ -6,13 +6,21 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import * as path from 'path';
+import * as path from 'node:path';
 import type { LoaderContext } from 'webpack';
 import { AngularPluginSymbol, FileEmitterCollection } from './symbol';
 
+type SourceMap = NonNullable<
+  Exclude<Parameters<LoaderContext<unknown>['callback']>[2], string | undefined>
+>;
+
 const JS_FILE_REGEXP = /\.[cm]?js$/;
 
-export function angularWebpackLoader(this: LoaderContext<unknown>, content: string, map: string) {
+export function angularWebpackLoader(
+  this: LoaderContext<unknown>,
+  content: string,
+  map: string,
+): void {
   const callback = this.async();
   if (!callback) {
     throw new Error('Invalid webpack version');
@@ -55,13 +63,10 @@ export function angularWebpackLoader(this: LoaderContext<unknown>, content: stri
       result.dependencies.forEach((dependency) => this.addDependency(dependency));
 
       let resultContent = result.content || '';
-      let resultMap;
+      let resultMap: SourceMap | undefined;
       if (result.map) {
         resultContent = resultContent.replace(/^\/\/# sourceMappingURL=[^\r\n]*/gm, '');
-        resultMap = JSON.parse(result.map) as Exclude<
-          Parameters<typeof callback>[2],
-          string | undefined
-        >;
+        resultMap = JSON.parse(result.map) as SourceMap;
         resultMap.sources = resultMap.sources.map((source: string) =>
           path.join(path.dirname(this.resourcePath), source),
         );

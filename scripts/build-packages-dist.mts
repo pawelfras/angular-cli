@@ -16,22 +16,21 @@ import { BuiltPackage } from '@angular/ng-dev';
 import { execSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import sh from 'shelljs';
 
 /** Name of the Bazel tag that will be used to find release package targets. */
 const releaseTargetTag = 'release-package';
 
 /** Path to the project directory. */
-const projectDir = join(dirname(fileURLToPath(import.meta.url)), '../');
+const projectDir = join(import.meta.dirname, '../');
 
 /** Command that runs Bazel. */
-const bazelCmd = process.env.BAZEL || `yarn bazel`;
+const bazelCmd = process.env.BAZEL || `pnpm -s bazel`;
 
 /** Command that queries Bazel for all release package targets. */
 const queryPackagesCmd =
   `${bazelCmd} query --output=label "attr('tags', '\\[.*${releaseTargetTag}.*\\]', //packages/...) ` +
-  `intersect kind('ng_package|pkg_npm', //packages/...)"`;
+  `intersect kind('ng_package|pkg_npm|^_npm_package rule$', //packages/...)"`;
 
 /** Path for the default distribution output directory. */
 const defaultDistPath = join(projectDir, 'dist/releases');

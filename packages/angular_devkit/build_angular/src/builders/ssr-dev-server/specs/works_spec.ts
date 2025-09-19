@@ -14,7 +14,16 @@ import { SSRDevServerBuilderOutput } from '../index';
 
 describe('Serve SSR Builder', () => {
   const target = { project: 'app', target: 'serve-ssr' };
+  const originalTimeout = jasmine.DEFAULT_TIMEOUT_INTERVAL;
   let architect: Architect;
+
+  beforeAll(() => {
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = 100_000;
+  });
+
+  afterAll(() => {
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = originalTimeout;
+  });
 
   beforeEach(async () => {
     await host.initialize().toPromise();
@@ -38,11 +47,12 @@ describe('Serve SSR Builder', () => {
         server.set('view engine', 'html');
         server.set('views', distFolder);
 
-        server.get('*.*', express.static(distFolder, {
-          maxAge: '1y'
+        server.use(express.static(distFolder, {
+          maxAge: '1y',
+          index: false,
         }));
 
-        server.get('*', (req, res, next) => {
+        server.use((req, res, next) => {
           commonEngine
             .render({
               bootstrap: AppServerModule,

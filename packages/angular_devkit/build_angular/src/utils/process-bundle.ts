@@ -17,9 +17,9 @@ import {
   traverse,
   types,
 } from '@babel/core';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { workerData } from 'worker_threads';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import { workerData } from 'node:worker_threads';
 import { InlineOptions } from './bundle-inline-options';
 import { allowMinify, shouldBeautify } from './environment-options';
 import { assertIsError } from './error';
@@ -192,10 +192,10 @@ export async function inlineLocales(options: InlineOptions) {
     if (!transformResult || !transformResult.code) {
       throw new Error(`Unknown error occurred processing bundle for "${options.filename}".`);
     }
-
+    const subPath = i18n.locales[locale].subPath;
     const outputPath = path.join(
       options.outputPath,
-      i18n.flatOutput ? '' : locale,
+      i18n.flatOutput ? '' : subPath,
       options.filename,
     );
     await fs.writeFile(outputPath, transformResult.code);
@@ -240,7 +240,8 @@ async function inlineLocalesDirect(ast: ParseResult, options: InlineOptions) {
   for (const locale of i18n.inlineLocales) {
     const content = new ReplaceSource(
       inputMap
-        ? new SourceMapSource(options.code, options.filename, inputMap)
+        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          new SourceMapSource(options.code, options.filename, inputMap as any)
         : new OriginalSource(options.code, options.filename),
     );
 
@@ -284,9 +285,10 @@ async function inlineLocalesDirect(ast: ParseResult, options: InlineOptions) {
       source: string;
       map: { file: string; sourceRoot?: string };
     };
+    const subPath = i18n.locales[locale].subPath;
     const outputPath = path.join(
       options.outputPath,
-      i18n.flatOutput ? '' : locale,
+      i18n.flatOutput ? '' : subPath,
       options.filename,
     );
     await fs.writeFile(outputPath, outputCode);
@@ -309,9 +311,10 @@ async function inlineCopyOnly(options: InlineOptions) {
   }
 
   for (const locale of i18n.inlineLocales) {
+    const subPath = i18n.locales[locale].subPath;
     const outputPath = path.join(
       options.outputPath,
-      i18n.flatOutput ? '' : locale,
+      i18n.flatOutput ? '' : subPath,
       options.filename,
     );
     await fs.writeFile(outputPath, options.code);

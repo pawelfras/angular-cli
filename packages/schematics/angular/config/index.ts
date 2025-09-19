@@ -17,38 +17,33 @@ import {
   strings,
   url,
 } from '@angular-devkit/schematics';
-import { AngularBuilder, readWorkspace, updateWorkspace } from '@schematics/angular/utility';
-import { posix as path } from 'path';
+import { posix as path } from 'node:path';
 import { relativePathToWorkspaceRoot } from '../utility/paths';
+import { createProjectSchematic } from '../utility/project';
+import { updateWorkspace } from '../utility/workspace';
+import { Builders as AngularBuilder } from '../utility/workspace-models';
 import { Schema as ConfigOptions, Type as ConfigType } from './schema';
 
-export default function (options: ConfigOptions): Rule {
+export default createProjectSchematic<ConfigOptions>((options, { project }) => {
   switch (options.type) {
     case ConfigType.Karma:
       return addKarmaConfig(options);
     case ConfigType.Browserslist:
-      return addBrowserslistConfig(options);
+      return addBrowserslistConfig(project.root);
     default:
       throw new SchematicsException(`"${options.type}" is an unknown configuration file type.`);
   }
-}
+});
 
-function addBrowserslistConfig(options: ConfigOptions): Rule {
-  return async (host) => {
-    const workspace = await readWorkspace(host);
-    const project = workspace.projects.get(options.project);
-    if (!project) {
-      throw new SchematicsException(`Project name "${options.project}" doesn't not exist.`);
-    }
-
-    return mergeWith(
-      apply(url('./files'), [
-        filter((p) => p.endsWith('.browserslistrc.template')),
-        applyTemplates({}),
-        move(project.root),
-      ]),
-    );
-  };
+async function addBrowserslistConfig(projectRoot: string): Promise<Rule> {
+  return mergeWith(
+    apply(url('./files'), [
+      filter((p) => p.endsWith('.browserslistrc.template')),
+      // The below is replaced by bazel `npm_package`.
+      applyTemplates({ baselineDate: 'BASELINE-DATE-PLACEHOLDER' }),
+      move(projectRoot),
+    ]),
+  );
 }
 
 function addKarmaConfig(options: ConfigOptions): Rule {
@@ -66,9 +61,13 @@ function addKarmaConfig(options: ConfigOptions): Rule {
       );
     }
 
-    if (testTarget.builder !== AngularBuilder.Karma) {
+    if (
+      testTarget.builder !== AngularBuilder.Karma &&
+      testTarget.builder !== AngularBuilder.BuildKarma
+    ) {
       throw new SchematicsException(
-        `Cannot add a karma configuration as builder for "test" target in project does not use "${AngularBuilder.Karma}".`,
+        `Cannot add a karma configuration as builder for "test" target in project does not` +
+          ` use "${AngularBuilder.Karma}" or "${AngularBuilder.BuildKarma}".`,
       );
     }
 
@@ -87,6 +86,7 @@ function addKarmaConfig(options: ConfigOptions): Rule {
         applyTemplates({
           relativePathToWorkspaceRoot: relativePathToWorkspaceRoot(project.root),
           folderName,
+          needDevkitPlugin: testTarget.builder === AngularBuilder.Karma,
         }),
         move(project.root),
       ]),

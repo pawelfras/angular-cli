@@ -7,9 +7,9 @@
  */
 
 import { logging, tags } from '@angular-devkit/core';
-import { existsSync, promises as fsPromises } from 'fs';
-import { extname, posix, resolve } from 'path';
-import { URL, pathToFileURL } from 'url';
+import { existsSync, promises as fsPromises } from 'node:fs';
+import { extname, posix, resolve } from 'node:path';
+import { URL, pathToFileURL } from 'node:url';
 import { Configuration, RuleSetRule } from 'webpack';
 import type { Configuration as DevServerConfiguration } from 'webpack-dev-server';
 import { WebpackConfigOptions, WebpackDevServerOptions } from '../../../utils/build-options';
@@ -169,7 +169,7 @@ async function addProxyConfig(
     throw new Error(`Proxy configuration file ${proxyPath} does not exist.`);
   }
 
-  let proxyConfiguration: Record<string, object> | object[];
+  let proxyConfiguration;
 
   switch (extname(proxyPath)) {
     case '.json': {
@@ -194,11 +194,9 @@ async function addProxyConfig(
       // Load the ESM configuration file using the TypeScript dynamic import workaround.
       // Once TypeScript provides support for keeping the dynamic import this workaround can be
       // changed to a direct dynamic import.
-      proxyConfiguration = (
-        await loadEsmModule<{ default: Record<string, object> | object[] }>(
-          pathToFileURL(proxyPath),
-        )
-      ).default;
+      proxyConfiguration = await loadEsmModule<{ default: Record<string, object> | object[] }>(
+        pathToFileURL(proxyPath),
+      );
       break;
     case '.cjs':
       proxyConfiguration = require(proxyPath);
@@ -210,19 +208,21 @@ async function addProxyConfig(
         proxyConfiguration = require(proxyPath);
       } catch (e) {
         assertIsError(e);
-        if (e.code !== 'ERR_REQUIRE_ESM') {
+        if (e.code !== 'ERR_REQUIRE_ESM' && e.code !== 'ERR_REQUIRE_ASYNC_MODULE') {
           throw e;
         }
 
         // Load the ESM configuration file using the TypeScript dynamic import workaround.
         // Once TypeScript provides support for keeping the dynamic import this workaround can be
         // changed to a direct dynamic import.
-        proxyConfiguration = (
-          await loadEsmModule<{ default: Record<string, object> | object[] }>(
-            pathToFileURL(proxyPath),
-          )
-        ).default;
+        proxyConfiguration = await loadEsmModule<{ default: Record<string, object> | object[] }>(
+          pathToFileURL(proxyPath),
+        );
       }
+  }
+
+  if ('default' in proxyConfiguration) {
+    proxyConfiguration = proxyConfiguration.default;
   }
 
   return normalizeProxyConfiguration(proxyConfiguration);

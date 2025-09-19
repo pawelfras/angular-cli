@@ -13,9 +13,11 @@ import { OutputMode } from '../../builders/application/schema';
 import { BuildOutputFile, BuildOutputFileType } from '../../tools/esbuild/bundler-context';
 import { BuildOutputAsset } from '../../tools/esbuild/bundler-execution-result';
 import { assertIsError } from '../error';
+import { toPosixPath } from '../path';
 import { urlJoin } from '../url';
 import { WorkerPool } from '../worker-pool';
 import { IMPORT_EXEC_ARGV } from './esm-in-memory-loader/utils';
+import { SERVER_APP_MANIFEST_FILENAME } from './manifest';
 import {
   RouteRenderMode,
   RoutersExtractorWorkerResult,
@@ -93,7 +95,7 @@ export async function prerenderPages(
 
   const assetsReversed: Record</** Destination */ string, /** Source */ string> = {};
   for (const { source, destination } of assets) {
-    assetsReversed[addLeadingSlash(destination.replace(/\\/g, posix.sep))] = source;
+    assetsReversed[addLeadingSlash(toPosixPath(destination))] = source;
   }
 
   // Get routes to prerender
@@ -112,7 +114,7 @@ export async function prerenderPages(
     outputMode,
   ).catch((err) => {
     return {
-      errors: [`An error occurred while extracting routes.\n\n${err.stack ?? err.message ?? err}`],
+      errors: [`An error occurred while extracting routes.\n\n${err.message ?? err.stack ?? err}`],
       serializedRouteTree: [],
       appShellRoute: undefined,
     };
@@ -156,6 +158,16 @@ export async function prerenderPages(
     };
   }
 
+  // Add the extracted routes to the manifest file.
+  // We could re-generate it from the start, but that would require a number of options to be passed down.
+  const manifest = outputFilesForWorker[SERVER_APP_MANIFEST_FILENAME];
+  if (manifest) {
+    outputFilesForWorker[SERVER_APP_MANIFEST_FILENAME] = manifest.replace(
+      'routes: undefined,',
+      `routes: ${JSON.stringify(serializableRouteTreeNodeForPrerender, undefined, 2)},`,
+    );
+  }
+
   // Render routes
   const { errors: renderingErrors, output } = await renderPages(
     baseHref,
@@ -165,7 +177,6 @@ export async function prerenderPages(
     workspaceRoot,
     outputFilesForWorker,
     assetsReversed,
-    appShellOptions,
     outputMode,
     appShellRoute ?? appShellOptions?.route,
   );
@@ -188,7 +199,6 @@ async function renderPages(
   workspaceRoot: string,
   outputFilesForWorker: Record<string, string>,
   assetFilesForWorker: Record<string, string>,
-  appShellOptions: AppShellOptions | undefined,
   outputMode: OutputMode | undefined,
   appShellRoute: string | undefined,
 ): Promise<{
@@ -219,12 +229,14 @@ async function renderPages(
   try {
     const renderingPromises: Promise<void>[] = [];
     const appShellRouteWithLeadingSlash = appShellRoute && addLeadingSlash(appShellRoute);
-    const baseHrefWithLeadingSlash = addLeadingSlash(baseHref);
+    const baseHrefPathnameWithLeadingSlash = new URL(baseHref, 'http://localhost').pathname;
 
-    for (const { route, redirectTo, renderMode } of serializableRouteTreeNode) {
+    for (const { route, redirectTo } of serializableRouteTreeNode) {
       // Remove the base href from the file output path.
-      const routeWithoutBaseHref = addTrailingSlash(route).startsWith(baseHrefWithLeadingSlash)
-        ? addLeadingSlash(route.slice(baseHrefWithLeadingSlash.length - 1))
+      const routeWithoutBaseHref = addTrailingSlash(route).startsWith(
+        baseHrefPathnameWithLeadingSlash,
+      )
+        ? addLeadingSlash(route.slice(baseHrefPathnameWithLeadingSlash.length))
         : route;
 
       const outPath = posix.join(removeLeadingSlash(routeWithoutBaseHref), 'index.html');
@@ -247,7 +259,7 @@ async function renderPages(
         })
         .catch((err) => {
           errors.push(
-            `An error occurred while prerendering route '${route}'.\n\n${err.stack ?? err.message ?? err.code ?? err}`,
+            `An error occurred while prerendering route '${route}'.\n\n${err.message ?? err.stack ?? err.code ?? err}`,
           );
           void renderWorker.destroy();
         });
@@ -348,7 +360,7 @@ async function getAllRoutes(
 
     return {
       errors: [
-        `An error occurred while extracting routes.\n\n${err.stack ?? err.message ?? err.code ?? err}`,
+        `An error occurred while extracting routes.\n\n${err.message ?? err.stack ?? err.code ?? err}`,
       ],
       serializedRouteTree: [],
     };

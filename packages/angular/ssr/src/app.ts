@@ -6,8 +6,14 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import { LOCALE_ID, StaticProvider, ɵresetCompiledComponents } from '@angular/core';
-import { REQUEST, REQUEST_CONTEXT, RESPONSE_INIT } from '@angular/ssr/tokens';
+import {
+  LOCALE_ID,
+  REQUEST,
+  REQUEST_CONTEXT,
+  RESPONSE_INIT,
+  StaticProvider,
+  ɵresetCompiledComponents,
+} from '@angular/core';
 import { ServerAssets } from './assets';
 import { Hooks } from './hooks';
 import { getAngularAppManifest } from './manifest';
@@ -18,7 +24,8 @@ import { sha256 } from './utils/crypto';
 import { InlineCriticalCssProcessor } from './utils/inline-critical-css';
 import { LRUCache } from './utils/lru-cache';
 import { AngularBootstrap, renderAngular } from './utils/ng';
-import { joinUrlParts, stripIndexHtmlFromURL, stripLeadingSlash } from './utils/url';
+import { promiseWithAbort } from './utils/promise';
+import { buildPathWithParams, joinUrlParts, stripLeadingSlash } from './utils/url';
 
 /**
  * Maximum number of critical CSS entries the cache can store.
@@ -95,6 +102,14 @@ export class AngularServerApp {
   constructor(private readonly options: Readonly<AngularServerAppOptions> = {}) {
     this.allowStaticRouteRender = this.options.allowStaticRouteRender ?? false;
     this.hooks = options.hooks ?? new Hooks();
+
+    if (this.manifest.inlineCriticalCss) {
+      this.inlineCriticalCssProcessor = new InlineCriticalCssProcessor((path: string) => {
+        const fileName = path.split('/').pop() ?? path;
+
+        return this.assets.getServerAsset(fileName).text();
+      });
+    }
   }
 
   /**
@@ -121,6 +136,11 @@ export class AngularServerApp {
    * The bootstrap mechanism for the server application.
    */
   private boostrap: AngularBootstrap | undefined;
+
+  /**
+   * Decorder used to convert a string to a Uint8Array.
+   */
+  private readonly textDecoder = new TextEncoder();
 
   /**
    * Cache for storing critical CSS for pages.
@@ -154,11 +174,7 @@ export class AngularServerApp {
 
     const { redirectTo, status, renderMode } = matchedRoute;
     if (redirectTo !== undefined) {
-      // Note: The status code is validated during route extraction.
-      // 302 Found is used by default for redirections
-      // See: https://developer.mozilla.org/en-US/docs/Web/API/Response/redirect_static#status
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return Response.redirect(new URL(redirectTo, url), (status as any) ?? 302);
+      return createRedirectResponse(buildPathWithParams(redirectTo, url.pathname), status);
     }
 
     if (renderMode === RenderMode.Prerender) {
@@ -168,10 +184,11 @@ export class AngularServerApp {
       }
     }
 
-    return Promise.race([
-      this.waitForRequestAbort(request),
+    return promiseWithAbort(
       this.handleRendering(request, matchedRoute, requestContext),
-    ]);
+      request.signal,
+      `Request for: ${request.url}`,
+    );
   }
 
   /**
@@ -198,13 +215,17 @@ export class AngularServerApp {
       return null;
     }
 
-    const { pathname } = stripIndexHtmlFromURL(new URL(request.url));
-    const assetPath = stripLeadingSlash(joinUrlParts(pathname, 'index.html'));
-    if (!this.assets.hasServerAsset(assetPath)) {
+    const assetPath = this.buildServerAssetPathFromRequest(request);
+    const {
+      manifest: { locale },
+      assets,
+    } = this;
+
+    if (!assets.hasServerAsset(assetPath)) {
       return null;
     }
 
-    const { text, hash, size } = this.assets.getServerAsset(assetPath);
+    const { text, hash, size } = assets.getServerAsset(assetPath);
     const etag = `"${hash}"`;
 
     return request.headers.get('if-none-match') === etag
@@ -214,6 +235,7 @@ export class AngularServerApp {
             'Content-Length': size.toString(),
             'ETag': etag,
             'Content-Type': 'text/html;charset=UTF-8',
+            ...(locale !== undefined ? { 'Content-Language': locale } : {}),
             ...headers,
           },
         });
@@ -235,28 +257,26 @@ export class AngularServerApp {
     matchedRoute: RouteTreeNodeMetadata,
     requestContext?: unknown,
   ): Promise<Response | null> {
-    const { redirectTo, status } = matchedRoute;
+    const { renderMode, headers, status, preload } = matchedRoute;
 
-    if (redirectTo !== undefined) {
-      // Note: The status code is validated during route extraction.
-      // 302 Found is used by default for redirections
-      // See: https://developer.mozilla.org/en-US/docs/Web/API/Response/redirect_static#status
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return Response.redirect(new URL(redirectTo, new URL(request.url)), (status as any) ?? 302);
-    }
-
-    const { renderMode, headers } = matchedRoute;
     if (!this.allowStaticRouteRender && renderMode === RenderMode.Prerender) {
       return null;
     }
 
+    const url = new URL(request.url);
     const platformProviders: StaticProvider[] = [];
+
+    const {
+      manifest: { bootstrap, locale },
+      assets,
+    } = this;
 
     // Initialize the response with status and headers if available.
     const responseInit = {
       status,
       headers: new Headers({
         'Content-Type': 'text/html;charset=UTF-8',
+        ...(locale !== undefined ? { 'Content-Language': locale } : {}),
         ...headers,
       }),
     };
@@ -279,14 +299,11 @@ export class AngularServerApp {
       );
     } else if (renderMode === RenderMode.Client) {
       // Serve the client-side rendered version if the route is configured for CSR.
-      return new Response(await this.assets.getServerAsset('index.csr.html').text(), responseInit);
-    }
+      let html = await this.assets.getServerAsset('index.csr.html').text();
+      html = await this.runTransformsOnHtml(html, url, preload);
 
-    const {
-      manifest: { bootstrap, inlineCriticalCss, locale },
-      hooks,
-      assets,
-    } = this;
+      return new Response(html, responseInit);
+    }
 
     if (locale !== undefined) {
       platformProviders.push({
@@ -295,17 +312,11 @@ export class AngularServerApp {
       });
     }
 
-    const url = new URL(request.url);
-    let html = await assets.getIndexServerHtml().text();
-
-    // Skip extra microtask if there are no pre hooks.
-    if (hooks.has('html:transform:pre')) {
-      html = await hooks.run('html:transform:pre', { html, url });
-    }
-
     this.boostrap ??= await bootstrap();
+    let html = await assets.getIndexServerHtml().text();
+    html = await this.runTransformsOnHtml(html, url, preload);
 
-    html = await renderAngular(
+    const result = await renderAngular(
       html,
       this.boostrap,
       url,
@@ -313,63 +324,102 @@ export class AngularServerApp {
       SERVER_CONTEXT_VALUE[renderMode],
     );
 
-    if (inlineCriticalCss) {
-      // Optionally inline critical CSS.
-      this.inlineCriticalCssProcessor ??= new InlineCriticalCssProcessor((path: string) => {
-        const fileName = path.split('/').pop() ?? path;
-
-        return this.assets.getServerAsset(fileName).text();
-      });
-
-      // TODO(alanagius): remove once Node.js version 18 is no longer supported.
-      if (renderMode === RenderMode.Server && typeof crypto === 'undefined') {
-        // eslint-disable-next-line no-console
-        console.error(
-          `The global 'crypto' module is unavailable. ` +
-            `If you are running on Node.js, please ensure you are using version 20 or later, ` +
-            `which includes built-in support for the Web Crypto module.`,
-        );
-      }
-
-      if (renderMode === RenderMode.Server && typeof crypto !== 'undefined') {
-        // Only cache if we are running in SSR Mode.
-        const cacheKey = await sha256(html);
-        let htmlWithCriticalCss = this.criticalCssLRUCache.get(cacheKey);
-        if (htmlWithCriticalCss === undefined) {
-          htmlWithCriticalCss = await this.inlineCriticalCssProcessor.process(html);
-          this.criticalCssLRUCache.put(cacheKey, htmlWithCriticalCss);
-        }
-
-        html = htmlWithCriticalCss;
-      } else {
-        html = await this.inlineCriticalCssProcessor.process(html);
-      }
+    if (result.hasNavigationError) {
+      return null;
     }
 
-    return new Response(html, responseInit);
+    if (result.redirectTo) {
+      return createRedirectResponse(result.redirectTo, status);
+    }
+
+    const { inlineCriticalCssProcessor, criticalCssLRUCache, textDecoder } = this;
+
+    // Use a stream to send the response before finishing rendering and inling critical CSS, improving performance via header flushing.
+    const stream = new ReadableStream({
+      async start(controller) {
+        const renderedHtml = await result.content();
+
+        if (!inlineCriticalCssProcessor) {
+          controller.enqueue(textDecoder.encode(renderedHtml));
+          controller.close();
+
+          return;
+        }
+
+        let htmlWithCriticalCss;
+        try {
+          if (renderMode === RenderMode.Server) {
+            const cacheKey = await sha256(renderedHtml);
+            htmlWithCriticalCss = criticalCssLRUCache.get(cacheKey);
+            if (!htmlWithCriticalCss) {
+              htmlWithCriticalCss = await inlineCriticalCssProcessor.process(renderedHtml);
+              criticalCssLRUCache.put(cacheKey, htmlWithCriticalCss);
+            }
+          } else {
+            htmlWithCriticalCss = await inlineCriticalCssProcessor.process(renderedHtml);
+          }
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error(`An error occurred while inlining critical CSS for: ${url}.`, error);
+        }
+
+        controller.enqueue(textDecoder.encode(htmlWithCriticalCss ?? renderedHtml));
+        controller.close();
+      },
+    });
+
+    return new Response(stream, responseInit);
   }
 
   /**
-   * Returns a promise that rejects if the request is aborted.
+   * Constructs the asset path on the server based on the provided HTTP request.
    *
-   * @param request - The HTTP request object being monitored for abortion.
-   * @returns A promise that never resolves and rejects with an `AbortError`
-   * if the request is aborted.
+   * This method processes the incoming request URL to derive a path corresponding
+   * to the requested asset. It ensures the path points to the correct file (e.g.,
+   * `index.html`) and removes any base href if it is not part of the asset path.
+   *
+   * @param request - The incoming HTTP request object.
+   * @returns The server-relative asset path derived from the request.
    */
-  private waitForRequestAbort(request: Request): Promise<never> {
-    return new Promise<never>((_, reject) => {
-      request.signal.addEventListener(
-        'abort',
-        () => {
-          const abortError = new Error(
-            `Request for: ${request.url} was aborted.\n${request.signal.reason}`,
-          );
-          abortError.name = 'AbortError';
-          reject(abortError);
-        },
-        { once: true },
-      );
-    });
+  private buildServerAssetPathFromRequest(request: Request): string {
+    let { pathname: assetPath } = new URL(request.url);
+    if (!assetPath.endsWith('/index.html')) {
+      // Append "index.html" to build the default asset path.
+      assetPath = joinUrlParts(assetPath, 'index.html');
+    }
+
+    const { baseHref } = this.manifest;
+    // Check if the asset path starts with the base href and the base href is not (`/` or ``).
+    if (baseHref.length > 1 && assetPath.startsWith(baseHref)) {
+      // Remove the base href from the start of the asset path to align with server-asset expectations.
+      assetPath = assetPath.slice(baseHref.length);
+    }
+
+    return stripLeadingSlash(assetPath);
+  }
+
+  /**
+   * Runs the registered transform hooks on the given HTML content.
+   *
+   * @param html - The raw HTML content to be transformed.
+   * @param url - The URL associated with the HTML content, used for context during transformations.
+   * @param preload - An array of URLs representing the JavaScript resources to preload.
+   * @returns A promise that resolves to the transformed HTML string.
+   */
+  private async runTransformsOnHtml(
+    html: string,
+    url: URL,
+    preload: readonly string[] | undefined,
+  ): Promise<string> {
+    if (this.hooks.has('html:transform:pre')) {
+      html = await this.hooks.run('html:transform:pre', { html, url });
+    }
+
+    if (preload?.length) {
+      html = appendPreloadHintsToHtml(html, preload);
+    }
+
+    return html;
   }
 }
 
@@ -406,4 +456,48 @@ export function destroyAngularServerApp(): void {
   }
 
   angularServerApp = undefined;
+}
+
+/**
+ * Appends module preload hints to an HTML string for specified JavaScript resources.
+ * This function enhances the HTML by injecting `<link rel="modulepreload">` elements
+ * for each provided resource, allowing browsers to preload the specified JavaScript
+ * modules for better performance.
+ *
+ * @param html - The original HTML string to which preload hints will be added.
+ * @param preload - An array of URLs representing the JavaScript resources to preload.
+ * @returns The modified HTML string with the preload hints injected before the closing `</body>` tag.
+ *          If `</body>` is not found, the links are not added.
+ */
+function appendPreloadHintsToHtml(html: string, preload: readonly string[]): string {
+  const bodyCloseIdx = html.lastIndexOf('</body>');
+  if (bodyCloseIdx === -1) {
+    return html;
+  }
+
+  // Note: Module preloads should be placed at the end before the closing body tag to avoid a performance penalty.
+  // Placing them earlier can cause the browser to prioritize downloading these modules
+  // over other critical page resources like images, CSS, and fonts.
+  return [
+    html.slice(0, bodyCloseIdx),
+    ...preload.map((val) => `<link rel="modulepreload" href="${val}">`),
+    html.slice(bodyCloseIdx),
+  ].join('\n');
+}
+
+/**
+ * Creates an HTTP redirect response with a specified location and status code.
+ *
+ * @param location - The URL to which the response should redirect.
+ * @param status - The HTTP status code for the redirection. Defaults to 302 (Found).
+ *                 See: https://developer.mozilla.org/en-US/docs/Web/API/Response/redirect_static#status
+ * @returns A `Response` object representing the HTTP redirect.
+ */
+function createRedirectResponse(location: string, status = 302): Response {
+  return new Response(null, {
+    status,
+    headers: {
+      'Location': location,
+    },
+  });
 }

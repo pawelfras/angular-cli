@@ -19,7 +19,7 @@ export default async function () {
 
   // Forcibly remove in case another test doesn't clean itself up.
   await uninstallPackage('@angular/ssr');
-  await ng('add', '@angular/ssr', '--server-routing', '--skip-confirmation', '--skip-install');
+  await ng('add', '@angular/ssr', '--skip-confirmation', '--skip-install');
   await useSha();
   await installWorkspacePackages();
 
@@ -28,22 +28,22 @@ export default async function () {
     'src/app/app.routes.ts',
     `
   import { Routes } from '@angular/router';
-  import { HomeComponent } from './home/home.component';
-  import { SsrComponent } from './ssr/ssr.component';
-  import { SsgComponent } from './ssg/ssg.component';
+  import { Home } from './home/home';
+  import { Ssr } from './ssr/ssr';
+  import { Ssg } from './ssg/ssg';
 
   export const routes: Routes = [
     {
       path: '',
-      component: HomeComponent,
+      component: Home,
     },
     {
       path: 'ssg',
-      component: SsgComponent,
+      component: Ssg,
     },
     {
       path: 'ssr',
-      component: SsrComponent,
+      component: Ssr,
     },
   ];
   `,
@@ -87,17 +87,18 @@ export default async function () {
 
   // Tests responses
   const port = await spawnServer();
-  const pathname = '/ssr';
-
+  const pathnamesToVerify = ['/ssr', '/ssg'];
   for (const { lang } of langTranslations) {
-    const res = await fetch(`http://localhost:${port}/base/${lang}${pathname}`);
-    const text = await res.text();
+    for (const pathname of pathnamesToVerify) {
+      const res = await fetch(`http://localhost:${port}/base/${lang}${pathname}`);
+      const text = await res.text();
 
-    assert.match(
-      text,
-      new RegExp(`<p id="locale">${lang}</p>`),
-      `Response for '${lang}${pathname}': '<p id="locale">${lang}</p>' was not matched in content.`,
-    );
+      assert.match(
+        text,
+        new RegExp(`<p id="locale">${lang}</p>`),
+        `Response for '${lang}${pathname}': '<p id="locale">${lang}</p>' was not matched in content.`,
+      );
+    }
   }
 }
 
@@ -108,6 +109,7 @@ async function spawnServer(): Promise<number> {
     ['run', 'serve:ssr:test-project'],
     /Node Express server listening on/,
     {
+      ...process.env,
       'PORT': String(port),
     },
   );

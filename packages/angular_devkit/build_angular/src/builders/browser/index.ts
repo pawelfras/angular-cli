@@ -20,8 +20,8 @@ import {
 import { BuilderContext, BuilderOutput, createBuilder } from '@angular-devkit/architect';
 import { EmittedFiles, WebpackLoggingCallback, runWebpack } from '@angular-devkit/build-webpack';
 import { imageDomains } from '@ngtools/webpack';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Observable, concatMap, from, map, switchMap } from 'rxjs';
 import webpack, { StatsCompilation } from 'webpack';
 import { getCommonConfig, getStylesConfig } from '../../tools/webpack/configs';
@@ -425,11 +425,18 @@ export function buildWebpackBrowser(
   );
 
   function getLocaleBaseHref(i18n: I18nOptions, locale: string): string | undefined {
-    if (i18n.locales[locale] && i18n.locales[locale]?.baseHref !== '') {
-      return urlJoin(options.baseHref || '', i18n.locales[locale].baseHref ?? `/${locale}/`);
+    if (i18n.flatOutput) {
+      return undefined;
     }
 
-    return undefined;
+    const localeData = i18n.locales[locale];
+    if (!localeData) {
+      return undefined;
+    }
+
+    const baseHrefSuffix = localeData.baseHref ?? localeData.subPath + '/';
+
+    return baseHrefSuffix !== '' ? urlJoin(options.baseHref || '', baseHrefSuffix) : undefined;
   }
 }
 

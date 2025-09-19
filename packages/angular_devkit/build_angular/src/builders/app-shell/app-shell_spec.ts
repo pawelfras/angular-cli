@@ -13,6 +13,15 @@ import { createArchitect, host } from '../../testing/test-utils';
 describe('AppShell Builder', () => {
   const target = { project: 'app', target: 'app-shell' };
   let architect: Architect;
+  const originalTimeout = jasmine.DEFAULT_TIMEOUT_INTERVAL;
+
+  beforeAll(() => {
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = 100_000;
+  });
+
+  afterAll(() => {
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = originalTimeout;
+  });
 
   beforeEach(async () => {
     await host.initialize().toPromise();
@@ -91,11 +100,11 @@ describe('AppShell Builder', () => {
       export class AppServerModule {}
     `,
     'src/main.ts': `
-      import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';
+      import { platformBrowser } from '@angular/platform-browser';
       import { AppModule } from './app/app.module';
 
       document.addEventListener('DOMContentLoaded', () => {
-        platformBrowserDynamic().bootstrapModule(AppModule)
+        platformBrowser().bootstrapModule(AppModule)
         .catch(err => console.log(err));
       });
     `,

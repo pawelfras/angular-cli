@@ -13,17 +13,17 @@ export default async function () {
 
   // Forcibly remove in case another test doesn't clean itself up.
   await rimraf('node_modules/@angular/ssr');
-  await ng('add', '@angular/ssr', '--server-routing', '--skip-confirmation');
+  await ng('add', '@angular/ssr', '--skip-confirmation');
   await useSha();
   await installWorkspacePackages();
 
   await writeMultipleFiles({
     // Add http client and route
     'src/app/app.config.ts': `
-      import { ApplicationConfig } from '@angular/core';
+      import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
       import { provideRouter } from '@angular/router';
 
-      import {HomeComponent} from './home/home.component';
+      import {Home} from './home/home';
       import { provideClientHydration } from '@angular/platform-browser';
       import { provideHttpClient, withFetch } from '@angular/common/http';
 
@@ -31,10 +31,11 @@ export default async function () {
         providers: [
           provideRouter([{
             path: '',
-            component: HomeComponent,
+            component: Home,
           }]),
           provideClientHydration(),
           provideHttpClient(withFetch()),
+          provideZoneChangeDetection({ eventCoalescing: true }),
         ],
       };
     `,
@@ -44,7 +45,7 @@ export default async function () {
     'public/media with-space.json': JSON.stringify({ dataFromAssetsWithSpace: true }),
 
     // Update component to do an HTTP call to asset.
-    'src/app/app.component.ts': `
+    'src/app/app.ts': `
     import { Component, inject } from '@angular/core';
     import { CommonModule } from '@angular/common';
     import { RouterOutlet } from '@angular/router';
@@ -60,7 +61,7 @@ export default async function () {
         <router-outlet></router-outlet>
       \`,
     })
-    export class AppComponent {
+    export class App {
       data: any;
       dataWithSpace: any;
 

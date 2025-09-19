@@ -7,11 +7,13 @@
  */
 
 import type { OnLoadResult, Plugin, PluginBuild } from 'esbuild';
-import glob from 'fast-glob';
 import assert from 'node:assert';
 import { readFile } from 'node:fs/promises';
-import { extname } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, extname } from 'node:path';
 import type { Options } from 'sass';
+import { glob } from 'tinyglobby';
+import { assertIsError } from '../../../utils/error';
 import type { PostcssConfiguration } from '../../../utils/postcss-configuration';
 import { LoadResultCache, createCachedLoad } from '../load-result-cache';
 
@@ -68,7 +70,7 @@ export interface StylesheetPluginOptions {
    * initialized and used for every stylesheet. This overrides the tailwind integration
    * and any tailwind usage must be manually configured in the custom postcss usage.
    */
-  postcssConfiguration?: PostcssConfiguration;
+  postcssConfiguration?: { config: PostcssConfiguration; configPath: string };
 
   /**
    * Optional Options for configuring Sass behavior.
@@ -214,14 +216,18 @@ export class StylesheetPluginFactory {
 
     const { options } = this;
     if (options.postcssConfiguration) {
-      const postCssInstanceKey = JSON.stringify(options.postcssConfiguration);
+      const { config, configPath } = options.postcssConfiguration;
+      const postCssInstanceKey = JSON.stringify(config);
       let postcssProcessor = postcssProcessors.get(postCssInstanceKey)?.deref();
 
       if (!postcssProcessor) {
         postcss ??= (await import('postcss')).default;
         postcssProcessor = postcss();
-        for (const [pluginName, pluginOptions] of options.postcssConfiguration.plugins) {
-          const { default: plugin } = await import(pluginName);
+
+        const postCssPluginRequire = createRequire(dirname(configPath) + '/');
+        for (const [pluginName, pluginOptions] of config.plugins) {
+          const pluginMod = postCssPluginRequire(pluginName);
+          const plugin = pluginMod.__esModule ? pluginMod['default'] : pluginMod;
           if (typeof plugin !== 'function' || plugin.postcss !== true) {
             throw new Error(`Attempted to load invalid Postcss plugin: "${pluginName}"`);
           }
@@ -422,8 +428,16 @@ async function compileString(
           },
         ],
       };
-    }
+    } else {
+      assertIsError(error);
 
-    throw error;
+      return {
+        errors: [
+          {
+            text: error.message,
+          },
+        ],
+      };
+    }
   }
 }

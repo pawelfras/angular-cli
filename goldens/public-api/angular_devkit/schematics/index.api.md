@@ -13,7 +13,7 @@ import { PathFragment } from '@angular-devkit/core';
 import { schema } from '@angular-devkit/core';
 import { strings } from '@angular-devkit/core';
 import { Subject } from 'rxjs';
-import { Url } from 'url';
+import { Url } from 'node:url';
 import { virtualFs } from '@angular-devkit/core';
 
 // @public (undocumented)
@@ -170,9 +170,9 @@ export type CollectionDescription<CollectionMetadataT extends object> = Collecti
 
 // @public (undocumented)
 export class CollectionImpl<CollectionT extends object, SchematicT extends object> implements Collection<CollectionT, SchematicT> {
-    constructor(_description: CollectionDescription<CollectionT>, _engine: SchematicEngine<CollectionT, SchematicT>, baseDescriptions?: Array<CollectionDescription<CollectionT>> | undefined);
+    constructor(_description: CollectionDescription<CollectionT>, _engine: SchematicEngine<CollectionT, SchematicT>, baseDescriptions?: CollectionDescription<CollectionT>[] | undefined);
     // (undocumented)
-    readonly baseDescriptions?: Array<CollectionDescription<CollectionT>> | undefined;
+    readonly baseDescriptions?: CollectionDescription<CollectionT>[] | undefined;
     // (undocumented)
     createSchematic(name: string, allowPrivate?: boolean): Schematic<CollectionT, SchematicT>;
     // (undocumented)
@@ -204,6 +204,8 @@ export interface CreateFileAction extends ActionBase {
 
 // @public (undocumented)
 export class DelegateTree implements Tree_2 {
+    // (undocumented)
+    [TreeSymbol]: () => this;
     constructor(_other: Tree_2);
     // (undocumented)
     get actions(): Action[];
@@ -272,7 +274,7 @@ export interface DirEntry {
 // @public (undocumented)
 export interface DryRunCreateEvent {
     // (undocumented)
-    content: Buffer;
+    content: ArrayBufferLike;
     // (undocumented)
     kind: 'create';
     // (undocumented)
@@ -332,7 +334,7 @@ export class DryRunSink extends HostSink {
 // @public (undocumented)
 export interface DryRunUpdateEvent {
     // (undocumented)
-    content: Buffer;
+    content: ArrayBufferLike;
     // (undocumented)
     kind: 'update';
     // (undocumented)
@@ -493,13 +495,13 @@ export class HostSink extends SimpleSinkBase {
     // (undocumented)
     _done(): Observable<void>;
     // (undocumented)
-    protected _filesToCreate: Map<Path, Buffer<ArrayBufferLike>>;
+    protected _filesToCreate: Map<Path, ArrayBufferLike>;
     // (undocumented)
     protected _filesToDelete: Set<Path>;
     // (undocumented)
     protected _filesToRename: Set<[Path, Path]>;
     // (undocumented)
-    protected _filesToUpdate: Map<Path, Buffer<ArrayBufferLike>>;
+    protected _filesToUpdate: Map<Path, ArrayBufferLike>;
     // (undocumented)
     protected _force: boolean;
     // (undocumented)
@@ -516,6 +518,8 @@ export class HostSink extends SimpleSinkBase {
 
 // @public (undocumented)
 export class HostTree implements Tree_2 {
+    // (undocumented)
+    [TreeSymbol]: () => this;
     constructor(_backend?: virtualFs.ReadonlyHost<{}>);
     // (undocumented)
     get actions(): Action[];
@@ -633,7 +637,10 @@ export enum MergeStrategy {
 export function mergeWith(source: Source, strategy?: MergeStrategy): Rule;
 
 // @public (undocumented)
-export function move(from: string, to?: string): Rule;
+export function move(from: string, to: string): Rule;
+
+// @public (undocumented)
+export function move(to: string): Rule;
 
 // @public (undocumented)
 export function noop(): Rule;
@@ -718,7 +725,7 @@ interface RequiredWorkflowExecutionContext {
 }
 
 // @public (undocumented)
-export type Rule = (tree: Tree_2, context: SchematicContext) => Tree_2 | Observable<Tree_2> | Rule | Promise<void | Rule> | void;
+export type Rule = (tree: Tree_2, context: SchematicContext) => Tree_2 | Observable<Tree_2> | Rule | Promise<void | Tree_2 | Rule> | void;
 
 // @public
 export type RuleFactory<T extends object> = (options: T) => Rule;

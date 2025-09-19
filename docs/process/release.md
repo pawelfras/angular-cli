@@ -30,7 +30,7 @@ the access group to now include the next caretakers. To perform this update to t
 the caretaker can run:
 
 ```bash
-$ yarn ng-dev caretaker handoff
+$ pnpm ng-dev caretaker handoff
 ```
 
 ## Merging PRs
@@ -39,12 +39,12 @@ The list of PRs which are currently ready to merge (approved with passing status
 be found with [this search](https://github.com/angular/angular-cli/pulls?q=is%3Apr+is%3Aopen+label%3A%22action%3A+merge%22+-is%3Adraft).
 This list should be checked daily and any ready PRs should be merged. For each PR, check the
 `target` label to understand where it should be merged to. You can find which branches a specific
-PR will be merged into with the `yarn ng-dev pr check-target-branches <pr>` command.
+PR will be merged into with the `pnpm ng-dev pr check-target-branches <pr>` command.
 
 When ready to merge a PR, run the following command:
 
-```
-yarn ng-dev pr merge <pr>
+```bash
+pnpm ng-dev pr merge <pr>
 ```
 
 ### Maintaining LTS branches
@@ -63,31 +63,20 @@ In general, cherry picks for LTS should only be done if it meets one of the crit
 
 # Release
 
-Releasing is performed using Angular's unified release tooling. Each week, two releases are expected, `latest` and `next` on npm. For major
-and minor releases, some dependencies need to be manually bumped. The following files contain all the version numbers which need to be
-manually updated:
-
-- [`latest-versions.ts`](/packages/schematics/angular/utility/latest-versions.ts#L=18)
-- [`latest-versions/package.json`](/packages/schematics/angular/utility/latest-versions/package.json)
-- [`@angular/pwa`](/packages/angular/pwa/package.json)
-- [`@angular-devkit/build-angular`](/packages/angular_devkit/build_angular/package.json)
-- [`@ngtools/webpack`](/packages/ngtools/webpack/package.json)
+Releasing is performed using Angular's unified release tooling. Each week, two releases are expected, `latest` and `next` on npm.
 
 **DURING a minor OR major CLI release:**
 
-Once FW releases the actual minor/major release (for example: `13.0.0` or `13.1.0`), the above versions should be updated to match (remove
-`-rc.0` and `-next.0`). This **must** be done as a separate PR which lands _after_ FW releases (or else CI will fail) but _before_ the CLI
+Once FW releases the actual minor/major release (for example: `13.0.0` or `13.1.0`), update dependencies with the following:
+
+1.  Update [`constants.bzl`](../../constants.bzl) so `@angular/core` and `ng-packagr` are using the release version (drop `-next.0`).
+
+Merge the above change in a separate PR which lands _after_ FW releases (or else CI will fail) but _before_ the CLI
 release PR. Releases are built before the PR is sent for review, so any changes after that point won't be included in the release.
-
-**AFTER a major CLI release:**
-
-Once a major release is complete, peer dependencies in the above files will need to be updated to "undo" the above change and add the
-prerelease version segment on `main`. For example, `"@angular/compiler-cli": "^13.0.0-next.0"` should become
-`"@angular/compiler-cli": "^13.0.0 || ^13.1.0-next.0"`. This should be done for all the peer deps in the above files.
 
 **AFTER a minor OR major CLI release:**
 
-`latest-versions.ts` also needs to be updated to use `-next.0` after a major or minor release. However this needs to happen _after_ FW
+`constants.bzl` also needs to be updated to use `-next.0` after a major or minor release. However this needs to happen _after_ FW
 publishes the initial `-next.0` release, which will happen 1 week after the major or minor release.
 
 ## Releasing the CLI
@@ -99,7 +88,7 @@ After confirming that the above steps have been done or are not necessary, run t
 navigate the prompts:
 
 ```sh
-yarn ng-dev release publish
+pnpm ng-dev release publish
 ```
 
 Releases should be done in "reverse semver order", meaning they should follow:
@@ -130,16 +119,19 @@ will block the next weekly release.
 1.  Trigger a release build locally.
     ```shell
     nvm install
-    yarn --frozen-lockfile
-    yarn -s ng-dev release build
+    pnpm install --frozen-lockfile
+    pnpm ng-dev release build
     ```
 1.  Log in to NPM as `angular`.
+
     ```shell
     npm login
     ```
+
     - See these two Valentine entries for authentication details:
       - https://valentine.corp.google.com/#/show/1460636514618735
       - https://valentine.corp.google.com/#/show/1531867371192103
+
 1.  Publish the release.
     ```shell
     (cd dist/releases/my-scope/my-pkg/ && npm publish --access public)
@@ -156,3 +148,27 @@ will block the next weekly release.
     accept the invite for the new package.
 
 Once Wombat accepts the invite, regular automated releases should work as expected.
+
+## Updating Browser Support
+
+Angular's browser support is defined by a [Baseline](https://web.dev/baseline)
+"widely available" date. Before a new major version is released, this should be
+updated to approximately the current date.
+
+A few weeks before a major (around feature freeze):
+
+1.  Update `BASELINE_DATE` in
+    [`/constants.bzl`](/constants.bzl) to the end of the most recent month.
+    - For example, if it is currently May 12th, set `baselineThreshold` to April
+      30th.
+    - Picking a date at the end of a month makes it easier to cross-reference
+      Angular's support with other tools (like MDN) which state Baseline support
+      using month specificity.
+    - Commit and merge the change, no other alterations or automation is
+      necessary in the CLI repo.
+2.  Update the date in the `ng-packagr` repo.
+    [`/.stylesheet-processor.ts`](https://github.com/ng-packagr/ng-packagr/blob/main/src/lib/styles/stylesheet-processor.ts#L25).
+3.  Update
+    [`angular.dev` documentation](https://github.com/angular/angular/tree/main/adev/src/content/reference/versions.md#browser-support)
+    to specify the date used and link to [browsersl.ist](https://browsersl.ist)
+    with the generated configuration.

@@ -40,6 +40,15 @@ function createWorkSpaceConfig(tree: UnitTestTree) {
   tree.create('/package.json', JSON.stringify({}, undefined, 2));
 }
 
+function addWorkspaceTarget(tree: UnitTestTree, targetName: string, targetEntry: unknown): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const workspaceContent = tree.readJson('/angular.json') as Record<string, any>;
+
+  workspaceContent['projects']['app']['architect'][targetName] = targetEntry;
+
+  tree.overwrite('/angular.json', JSON.stringify(workspaceContent));
+}
+
 describe(`Migration to use the application builder`, () => {
   const schematicName = 'use-application-builder';
   const schematicRunner = new SchematicTestRunner(
@@ -100,6 +109,122 @@ describe(`Migration to use the application builder`, () => {
       base: 'dist/project',
       media: 'resources',
     });
+  });
+
+  it(`should remove 'builderMode' from karma options`, async () => {
+    addWorkspaceTarget(tree, 'test', {
+      'builder': Builders.Karma,
+      'options': {
+        'builderMode': 'detect',
+        'polyfills': ['zone.js', 'zone.js/testing'],
+        'tsConfig': 'projects/app-a/tsconfig.spec.json',
+      },
+    });
+
+    const newTree = await schematicRunner.runSchematic(schematicName, {}, tree);
+    const {
+      projects: { app },
+    } = JSON.parse(newTree.readContent('/angular.json'));
+
+    const { builderMode } = app.architect['test'].options;
+    expect(builderMode).toBeUndefined();
+  });
+
+  it(`should update file for 'karmaConfig' karma option (no require trailing comma)`, async () => {
+    addWorkspaceTarget(tree, 'test', {
+      'builder': Builders.Karma,
+      'options': {
+        'karmaConfig': './karma.conf.js',
+        'polyfills': ['zone.js', 'zone.js/testing'],
+        'tsConfig': 'projects/app-a/tsconfig.spec.json',
+      },
+    });
+    tree.create(
+      './karma.conf.js',
+      `
+        module.exports = function (config) {
+          config.set({
+            basePath: '',
+            frameworks: ['jasmine', '@angular-devkit/build-angular'],
+            plugins: [
+              require('karma-jasmine'),
+              require('karma-chrome-launcher'),
+              require('karma-jasmine-html-reporter'),
+              require('karma-coverage'),
+              require('@angular-devkit/build-angular/plugins/karma')
+            ]
+          });
+        };`,
+    );
+
+    const newTree = await schematicRunner.runSchematic(schematicName, {}, tree);
+    const {
+      projects: { app },
+    } = JSON.parse(newTree.readContent('/angular.json'));
+
+    const { karmaConfig } = app.architect['test'].options;
+    expect(karmaConfig).toBe('./karma.conf.js');
+
+    const karmaConfigText = newTree.readText('./karma.conf.js');
+    expect(karmaConfigText).not.toContain(`require('@angular-devkit/build-angular/plugins/karma')`);
+  });
+
+  it(`should update file for 'karmaConfig' karma option (require trailing comma)`, async () => {
+    addWorkspaceTarget(tree, 'test', {
+      'builder': Builders.Karma,
+      'options': {
+        'karmaConfig': './karma.conf.js',
+        'polyfills': ['zone.js', 'zone.js/testing'],
+        'tsConfig': 'projects/app-a/tsconfig.spec.json',
+      },
+    });
+    tree.create(
+      './karma.conf.js',
+      `
+        module.exports = function (config) {
+          config.set({
+            basePath: '',
+            frameworks: ['jasmine', '@angular-devkit/build-angular'],
+            plugins: [
+              require('karma-jasmine'),
+              require('karma-chrome-launcher'),
+              require('karma-jasmine-html-reporter'),
+              require('karma-coverage'),
+              require('@angular-devkit/build-angular/plugins/karma'),
+            ]
+          });
+        };`,
+    );
+
+    const newTree = await schematicRunner.runSchematic(schematicName, {}, tree);
+    const {
+      projects: { app },
+    } = JSON.parse(newTree.readContent('/angular.json'));
+
+    const { karmaConfig } = app.architect['test'].options;
+    expect(karmaConfig).toBe('./karma.conf.js');
+
+    const karmaConfigText = newTree.readText('./karma.conf.js');
+    expect(karmaConfigText).not.toContain(`require('@angular-devkit/build-angular/plugins/karma')`);
+  });
+
+  it(`should ignore missing file for 'karmaConfig' karma option`, async () => {
+    addWorkspaceTarget(tree, 'test', {
+      'builder': Builders.Karma,
+      'options': {
+        'karmaConfig': './karma.conf.js',
+        'polyfills': ['zone.js', 'zone.js/testing'],
+        'tsConfig': 'projects/app-a/tsconfig.spec.json',
+      },
+    });
+
+    const newTree = await schematicRunner.runSchematic(schematicName, {}, tree);
+    const {
+      projects: { app },
+    } = JSON.parse(newTree.readContent('/angular.json'));
+
+    const { karmaConfig } = app.architect['test'].options;
+    expect(karmaConfig).toBe('./karma.conf.js');
   });
 
   it('should remove tilde prefix from CSS @import specifiers', async () => {

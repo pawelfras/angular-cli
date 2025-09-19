@@ -7,7 +7,7 @@
  */
 
 import { interpolateName } from 'loader-utils';
-import * as path from 'path';
+import * as path from 'node:path';
 import { Chunk, Compilation, Compiler, sources as webpackSources } from 'webpack';
 import { assertIsError } from '../../../utils/error';
 import { addError } from '../../../utils/webpack-diagnostics';
@@ -194,7 +194,9 @@ export class ScriptsWebpackPlugin {
           const asset = compilation.getAsset(assetName);
           if (asset) {
             const interpolatedFilename = interpolateName(
-              { resourcePath: 'scripts.js' },
+              // TODO: Revisit. Previously due to lack of type safety, this object
+              // was fine, but in practice it doesn't match the type of the loader context.
+              { resourcePath: 'scripts.js' } as Parameters<typeof interpolateName>[0],
               assetName,
               { content: asset.source.source() },
             );

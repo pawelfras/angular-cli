@@ -7,8 +7,8 @@
  * found in the LICENSE file at https://angular.dev/license
  */
 
-import { spawnSync } from 'child_process';
-import { join } from 'path';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
 
 const binPath = join(require.resolve('@angular/cli/package.json'), '../bin/ng.js');
 const args = process.argv.slice(2);
@@ -17,7 +17,7 @@ const hasPackageManagerArg = args.some((a) => a.startsWith('--package-manager'))
 if (!hasPackageManagerArg) {
   // Ex: yarn/1.22.18 npm/? node/v16.15.1 linux x64
   const packageManager = process.env['npm_config_user_agent']?.split('/')[0];
-  if (packageManager && ['npm', 'pnpm', 'yarn', 'cnpm', 'bun'].includes(packageManager)) {
+  if (packageManager && ['npm', 'pnpm', 'yarn', 'bun'].includes(packageManager)) {
     args.push('--package-manager', packageManager);
   }
 }

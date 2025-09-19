@@ -11,6 +11,7 @@ import {
 import { updateJsonFile, useSha } from '../../../utils/project';
 import { getGlobalVariable } from '../../../utils/env';
 import { findFreePort } from '../../../utils/network';
+import { readFile } from 'node:fs/promises';
 
 export default async function () {
   assert(
@@ -20,32 +21,32 @@ export default async function () {
 
   // Forcibly remove in case another test doesn't clean itself up.
   await uninstallPackage('@angular/ssr');
-  await ng('add', '@angular/ssr', '--server-routing', '--skip-confirmation', '--skip-install');
+  await ng('add', '@angular/ssr', '--skip-confirmation', '--skip-install');
   await useSha();
   await installWorkspacePackages();
   await installPackage('h3@1');
 
   await writeMultipleFiles({
-    // Replace the template of app.component.html as it makes it harder to debug
-    'src/app/app.component.html': '<router-outlet />',
+    // Replace the template of app.ng.html as it makes it harder to debug
+    'src/app/app.html': '<router-outlet />',
     'src/app/app.routes.ts': `
       import { Routes } from '@angular/router';
-      import { HomeComponent } from './home/home.component';
-      import { SsrComponent } from './ssr/ssr.component';
-      import { SsgWithParamsComponent } from './ssg-with-params/ssg-with-params.component';
+      import { Home } from './home/home';
+      import { Ssr } from './ssr/ssr';
+      import { SsgWithParams } from './ssg-with-params/ssg-with-params';
 
       export const routes: Routes = [
         {
           path: '',
-          component: HomeComponent,
+          component: Home,
         },
         {
           path: 'ssr',
-          component: SsrComponent,
+          component: Ssr,
         },
         {
           path: 'ssg/:id',
-          component: SsgWithParamsComponent,
+          component: SsgWithParams,
         },
       ];
     `,
